@@ -40,6 +40,18 @@ void handleClient(WiFiClient &client) {
     serveSensorData(client);
   }
   // Handle LED control requests
+  else if (path.startsWith("/PWMR") || path.startsWith("/PWMG") || path.startsWith("/PWMB")) {
+    String color = path.substring(4, 5); // Get R, G, or B
+    int value = path.substring(5).toInt(); // Get the PWM value
+    setPWM(color, value);
+    
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: text/plain");
+    client.println("Access-Control-Allow-Origin: *");
+    client.println();
+    client.println("OK");
+  }
+  // Legacy support for simple on/off
   else if (path.startsWith("/R") || path.startsWith("/G") || path.startsWith("/B")) {
     toggleLED(path);
     client.println("HTTP/1.1 200 OK");
@@ -62,11 +74,11 @@ void serveSensorData(WiFiClient &client) {
   client.print("{\"reading\":");
   client.print(sensorValue);
   client.print(",\"leds\":{\"red\":");
-  client.print(redLED ? "true" : "false");
+  client.print(redPWM);
   client.print(",\"green\":");
-  client.print(greenLED ? "true" : "false"); 
+  client.print(greenPWM); 
   client.print(",\"blue\":");
-  client.print(blueLED ? "true" : "false");
+  client.print(bluePWM);
   client.println("}}");
 }
 
