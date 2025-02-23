@@ -1,18 +1,37 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Sensor Dashboard</title>
-    <!-- Add React, ReactDOM, and Babel -->
-    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-    <!-- Add Chart.js before our app -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED Sequence Editor</title>
+    
+    <!-- Load React -->
+    <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    
+    <!-- Load Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Load our scripts -->
-    <script type="text/babel" src="chart.js"></script>
-    <script type="text/babel" src="react_app.js"></script>
+    
+    <!-- Load Babel -->
+    <script src="https://unpkg.com/@babel/standalone@7.22.17/babel.min.js"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: #f5f5f5;
+        }
+        canvas {
+            background-color: white;
+        }
+    </style>
 </head>
 <body>
     <div id="root"></div>
+
+    <!-- Load our React components -->
+    <script type="text/babel" data-type="module" src="chart.js"></script>
+    <script type="text/babel" data-type="module" src="react_app.js"></script>
 </body>
 </html>
