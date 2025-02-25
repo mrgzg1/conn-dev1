@@ -1,0 +1,192 @@
+{% extends 'admin/master.html' %}
+{% block body %}
+{{ super() }}
+
+{% if current_user.is_authenticated %}
+
+<!-- Content Header (Page header) -->
+<section class="content-header">
+  <h1>
+    Topology
+    <small>This is an overview of the mesh</small>
+    <br/>
+    <small>UTC TIME: {{now|datetime('full')}}</small>
+  </h1>
+</section>
+
+<section class="content">
+
+  <div class="row">
+    <!-- Left col -->
+    <section class="container">
+      <div class="container">
+        {% for key, val in nodes.items() %}
+        <div class="panel-group">
+          <div class="panel panel-default">
+            <div class="panel-heading">
+              <h4 class="panel-title">
+                <a data-toggle="collapse" href="#collapsen{{val.id}}">{{val['name']}} | {{val['hw_id']}}</a>
+              </h4>
+            </div>
+            <div id="collapsen{{val.id}}" class="panel-collapse collapse">
+              <ul class="list-group">
+
+                <li class="list-group-item">
+                  <button class="ping_btn {{val['hw_id']}}">status</button>
+                  <button class="enable_btn {{val['hw_id']}}">send enable</button>
+                  <button class="print_cfg {{val['hw_id']}}">print config</button>
+                  <button class="f_enable_btn {{val['hw_id']}}">force enable</button>
+                  <button class="reset_btn {{val['hw_id']}}">reset</button>
+                  <button class="format_btn {{val['hw_id']}}">format</button>
+                  <button class="fs_btn {{val['hw_id']}}">fsinfo</button>
+                  <button class="defrag_btn {{val['hw_id']}}">defrag</button>
+                  <button class="clear_cfg {{val['hw_id']}}">clear config</button>
+
+                </li>
+                {%for s_key, s_val in val['sensors'].items()%}
+                <li class="list-group-item">
+                  <a data-toggle="collapse" href="#collapses{{s_val.id}}">
+                    <h5>{{s_val.name}} | {{s_val.last_enabled | datetime('full')}}</h5>
+                  </a>
+                  <div id="collapses{{s_val.id}}" class="panel-collapse collapse">
+                    <ul class="treeview-menu">
+                      <li><a href="/admin/sensor/edit/?url=/admin/sensor/&id={{s_val['id']}}"><i class="fa"></i>{{s_val.misc}}</a></li>
+                      <li><a href="/admin/sensor/edit/?url=/admin/sensor/&id={{s_val['id']}}"><i class="fa"></i>LAST STATUS: {{s_val.last_enabled | datetime('full')}}</a></li>
+                    </ul>
+                  </div>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    <!-- /.Left col -->
+
+  </div>
+  <!-- /.row (main row) -->
+
+</section>
+<!-- /.content -->
+{% else %}
+
+<center>
+  <section class="content" style="color: white">
+    <div class="col-sm-12">
+      <h1>Flask-Admin example</h1>
+      <p class="lead">
+        Authentication
+      </p>
+      <p>
+        This example shows how you can use Flask-Admin in an admin template, <br> here I used AdminLTE and <a href="https://pythonhosted.org/Flask-Security/index.html" target="_blank">Flask-Security</a> for authentication.
+      </p>
+      {% if not current_user.is_authenticated %}
+      <p>You can register as a regular user, or log in as a superuser with the following credentials: <br><br>
+
+        email: <b>admin</b> <br>
+        password: <b>admin</b> <br>
+        <br>
+        <p>
+          <a class="btn btn-primary" href="{{ url_for('security.login') }}">Login</a> <a class="btn btn-default" href="{{ url_for('security.register') }}">Register</a>
+        </p>
+        {% endif %}
+        <br>
+        <p>
+          <a class="btn btn-primary" href="/"><i class="glyphicon glyphicon-chevron-left"></i> Back</a>
+        </p>
+      </div>
+    </section>
+  </center>
+
+  <br><br><br><br><br><br><br><br><br>
+  <br><br><br><br><br><br><br><br><br><br>
+  {% endif %}
+
+  {% endblock body %}
+
+  {% block tail %}
+  <script type=text/javascript>
+    $(function() {
+      $('.ping_btn').bind('click', function(a,b,c) {
+        var n_id = a.target.classList[1];
+        var url = '/node_mqtt/' + n_id;
+        $.post(url, {msg:"[status]"})
+        return false;
+      });
+      
+      $('.reset_btn').bind('click', function(a,b,c) {
+        var n_id = a.target.classList[1];
+        var url = '/node_mqtt/' + n_id;
+        $.post(url, {msg:"[reset]"})
+        return false;
+      });
+
+      $('.format_btn').bind('click', function(a,b,c) {
+        if (confirm('Are you sure you want to format this?')) {
+          var n_id = a.target.classList[1];
+          var url = '/node_mqtt/' + n_id;
+          $.post(url, {msg:"[formatfs]"})
+          return false;
+      }
+      });
+
+      $('.clear_cfg').bind('click', function(a,b,c) {
+        var n_id = a.target.classList[1];
+        var url = '/node_mqtt/' + n_id;
+        $.post(url, {msg:"[clearconfig]"})
+        return false;
+      });
+
+      $('.defrag_btn').bind('click', function(a,b,c) {
+        if (confirm('Are you sure you want to defrag this?')) {
+          var n_id = a.target.classList[1];
+          var url = '/node_mqtt/' + n_id;
+          $.post(url, {msg:"[defrag]"})
+          return false;
+      }
+      });
+
+      $('.print_cfg').bind('click', function(a,b,c) {
+        if (confirm('Are you sure you want to defrag this?')) {
+          var n_id = a.target.classList[1];
+          var url = '/node_mqtt/' + n_id;
+          $.post(url, {msg:"[printconfig]"})
+          return false;
+      }
+      });
+
+      $('.fs_btn').bind('click', function(a,b,c) {
+          var n_id = a.target.classList[1];
+          var url = '/node_mqtt/' + n_id;
+          $.post(url, {msg:"[fsinfo]"})
+          return false;
+      });
+
+      $('.enable_btn').bind('click', function(a,b,c) {
+        var s_id = a.target.classList[1];
+        var url = '/node/enable/' + s_id;
+        $.getJSON(url,
+            function(data) {
+          //do nothing
+        });
+        return false;
+      });
+
+      $('.f_enable_btn').bind('click', function(a,b,c) {
+        var s_id = a.target.classList[1];
+        var url = '/node/fenable/' + s_id;
+        $.getJSON(url,
+            function(data) {
+          //do nothing
+        });
+        return false;
+      });
+
+      $('.disable_btn').bind('click', function(a,b,c) {
+        console.log("DISIABLE MY ASS");
+      });
+    });
+  </script>
+  {% endblock tail%}

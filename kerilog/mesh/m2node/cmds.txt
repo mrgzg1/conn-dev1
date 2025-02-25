@@ -1,0 +1,6 @@
+Sample Enable Command for a sensor type:
+[enable:proxy:0,60,1;1,60,2;2,60,3;3,60,4;4,60,5;5,60,9]
+[printfile]
+[printconfig]
+[fsinfo]
+[formatfs]

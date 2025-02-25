@@ -1,0 +1,5 @@
+Record=TopLevelDocument|FileName=Main_sch.SchDoc
+Record=SheetSymbol|SourceDocument=Main_sch.SchDoc|Designator=U_1|SchDesignator=U_1|FileName=1.Power_Supply.SchDoc|SymbolType=Normal|RawFileName=1.Power_Supply.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=Main_sch.SchDoc|Designator=U_2|SchDesignator=U_2|FileName=2. MCU & Peripherals.SchDoc|SymbolType=Normal|RawFileName=2. MCU & Peripherals.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=Main_sch.SchDoc|Designator=U_3|SchDesignator=U_3|FileName=3. Proxy.SchDoc|SymbolType=Normal|RawFileName=3. Proxy.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=Main_sch.SchDoc|Designator=U_4|SchDesignator=U_4|FileName=4. PT100.SchDoc|SymbolType=Normal|RawFileName=4. PT100.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
