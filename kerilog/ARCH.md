@@ -1,5 +1,7 @@
 # Kerilog Mesh Network Message Flows
-                                              SENSOR DATA FLOW
+
+## SENSOR DATA FLOW
+```ascii
 ┌─────────┐ @v2:{timestamp}:{sensorID,data;} ┌─────────┐              ┌───────────┐            ┌───────────┐          ┌────────────┐
 │ m2nano  │─────────────────────────────────>│ m2node  │─────────────>│m2repeater │───-───────>│ m2bridge  │─────────>│MQTT Broker │
 │(sensors)│                                  │(buffer) │              │(relay)    │            │(gateway)  │          │            │
@@ -13,8 +15,10 @@
                                                                                                                     │  Admin Server  │
                                                                                                                     │  (db storage)  │
                                                                                                                     └────────────────┘
+```
 
-                                           CONFIGURATION AND COMMAND FLOW
+## CONFIGURATION AND COMMAND FLOW
+```ascii
 ┌────────────────┐           ┌────────────┐          ┌───────────┐              ┌───────────┐              ┌─────────┐           ┌─────────┐
 │  Admin Server  │          "toBridge/{nodeID}"      │ m2bridge  │              │m2repeater │              │  m2node │           │ m2nano  │
 │  (dashboard)   │───-──────>│MQTT Broker │─────────>│ (gateway) │─────────────>│  (relay)  │─────────────>│ (buffer)│-─────────>│(sensors)│
@@ -24,8 +28,10 @@
                                                                                    - [disable:proxy:0]      (disable sensor)
                                                                                    - [status]               (request status)
                                                                                    - [reset]                (reset device)
+```
 
-                                              ACKNOWLEDGMENT FLOW
+## ACKNOWLEDGMENT FLOW
+```ascii
 ┌─────────┐                   ┌───────────┐
 │ m2node  │────"data:{msg}"──>│ m2bridge  │
 │         │                   │           │
@@ -47,8 +53,10 @@
 │ Store in SPIFFS flash   │
 │ Retry periodically      │
 └─────────────────────────┘
+```
 
-                                              TIME SYNC FLOW
+## TIME SYNC FLOW
+```ascii
 ┌─────────┐                   ┌─────────┐                   ┌───────────┐
 │ m2nano  │────"[time]"───-──>│ m2node  │───────────────────│ m2bridge  │──(Time from mesh network)
 │         │                   │         │                   │           │
@@ -60,8 +68,10 @@
 │ Set internal clock │
 │ Timestamp data     │
 └────────────────────┘
+```
 
-                                              SYSTEM INIT FLOW
+## SYSTEM INIT FLOW
+```ascii
 ┌─────────┐                             ┌─────────┐                             ┌───────────┐                       ┌────────────┐                    ┌────────────────┐
 │ m2nano  │──────"init:ready"──-───────>│ m2node  │────--──────────────────────>│ m2bridge  │─"fromNode/{id}/init"─>│MQTT Broker │──────--───────────>│  Admin Server  │
 │         │                             │         │                             │           │                       │            │                    │                │
@@ -74,3 +84,4 @@
                                     │ from flash storage   │
                                     │ (CONFIG_FILE)        │
                                     └──────────────────────┘
+```
