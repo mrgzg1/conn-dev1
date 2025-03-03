@@ -4,8 +4,14 @@
 #include "sensor.h"
 #include "secrets.h"
 #include "web_files.h"
+#include "littlefs_storage.h"
 
 WiFiServer server(80);
+LittleFSStorage flashStorage;
+
+// Define the data flush interval (in milliseconds)
+const unsigned long DATA_FLUSH_INTERVAL = 60000; // 1 minute
+unsigned long lastFlushTime = 0;
 
 void printFileInfo(const char* name, const uint8_t* content, size_t length) {
     Serial.print("\nFile info for ");
@@ -33,6 +39,16 @@ void setup() {
   }
 
   Serial.println("\n=== IMU Data Collection Starting ===");
+  
+  // Initialize flash storage
+  if (!flashStorage.begin()) {
+    Serial.println("Failed to initialize flash storage! Check your configuration.");
+    // Proceed even if storage fails - we can still collect and transmit data
+  }
+  else {
+    // List any existing data files
+    flashStorage.listDataFiles();
+  }
     
   // Print stored file information
   printFileInfo("index.html", index_html, index_html_len);
@@ -80,6 +96,20 @@ void loop() {
   WiFiClient client = server.available();
   if (client) {
     handleClient(client);
+  }
+  
+  // Check if it's time to flush data to flash storage
+  unsigned long currentTime = millis();
+  if (currentTime - lastFlushTime >= DATA_FLUSH_INTERVAL) {
+    // Flush sensor data to flash storage
+    flashStorage.saveSensorBuffers(
+      accelX_buffer, accelY_buffer, accelZ_buffer,
+      gyroX_buffer, gyroY_buffer, gyroZ_buffer,
+      temperature_buffer, timestamp_buffer,
+      BUFFER_SIZE
+    );
+    
+    lastFlushTime = currentTime;
   }
   
   // Add a small delay to prevent overwhelming the IMU

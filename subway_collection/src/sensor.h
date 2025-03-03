@@ -2,6 +2,7 @@
 #define SENSOR_H
 
 #include <Arduino_LSM6DS3.h>
+#include "littlefs_storage.h" // Include for timestamp function
 
 const int SENSOR_PIN = A0;
 const int BUFFER_SIZE = 100;
@@ -86,8 +87,8 @@ void updateSensor() {
     temperature_buffer[bufferIndex] = temperature;
   }
   
-  // Record timestamp
-  lastReadTime = millis();
+  // Record timestamp using our timestamp function
+  lastReadTime = timestamp();
   timestamp_buffer[bufferIndex] = lastReadTime;
   
   // Increment buffer index (circular buffer)
