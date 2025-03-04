@@ -1,387 +1,399 @@
-// RP2040 Safe Flash Storage
-// A reliable storage system that avoids bricking the device
+// RP2040 Blob Storage Example
+// Demonstrates how to use the blob storage API for sensor data
+// Configuration
+#define ENABLE_DEMO_WRITES true
+#define FORMAT_STORAGE true
 
 #include <Arduino.h>
-#include <hardware/flash.h>
-#include <hardware/sync.h>
+#include "../include/storage_api.h"
 
-// Configuration options - TURN THESE OFF AFTER TESTING
-#define FORCE_FORMAT true
-#define CONTINUOUS_WRITE_TEST true
+// Define pins for buttons
+#define DEBUG_BUTTON_PIN 20  // D20 for data dump
+#define TEST_DATA_PIN 21     // D21 for writing test data
 
-// SAFETY FIRST: Use a small, fixed portion of flash at a safe location 
-// The RP2040 has program code at the beginning of flash, we'll use a small 
-// section near the end that won't interfere with the program
+// Simulated sensors
+float simulateTemperature() {
+  return 20.0 + (random(100) - 50) / 10.0;  // 15.0 to 25.0 °C
+}
 
-// Avoid redefining FLASH_SECTOR_SIZE since it's already defined
-#ifndef FLASH_SECTOR_SIZE
-#define FLASH_SECTOR_SIZE 4096
-#endif
+float simulateHumidity() {
+  return 50.0 + (random(200) - 100) / 10.0; // 40.0 to 60.0 %
+}
 
-// FLASH MEMORY LAYOUT OPTIMIZATION
-// Based on your device's specific memory map:
-
-// Your RP2040 has 11.54MB total flash
-// The filesystem uses 10MB (0x10188680 to 0x10b88680)
-// The sketch uses up to 1.53MB (from beginning of flash)
-// EEPROM starts at 0x10b88680
-
-// Let's place our storage just after the EEPROM
-#define FLASH_BASE_ADDR 0x10000000
-#define EEPROM_START 0x10b88680
-#define EEPROM_SIZE 0x1000  // Typical size (4KB)
-#define STORAGE_START (EEPROM_START + EEPROM_SIZE)
-
-// Calculate offset from base address
-#define FLASH_TARGET_OFFSET (STORAGE_START - FLASH_BASE_ADDR)
-
-// We have room for approximately 512KB (128 sectors)
-#define STORAGE_SECTORS 1024
-#define STORAGE_SIZE (STORAGE_SECTORS * FLASH_SECTOR_SIZE)
-
-// Extended storage header with boot count
-struct StorageHeader {
-  uint32_t magic;        // Magic number to identify our storage
-  uint32_t version;      // Version of the storage format
-  uint32_t dataSize;     // How much actual data is stored
-  uint32_t bootCount;    // Boot counter
-  uint32_t writeCount;   // Number of writes since boot
-  uint32_t crc;          // CRC32 checksum of the data
-};
-
-// Magic number to identify our storage (ASCII 'RPST' = RP2040 STorage)
-#define STORAGE_MAGIC 0x52505354
-
-// Buffer for reading/writing data - allocate only what we need
-uint8_t buffer[FLASH_SECTOR_SIZE];
-bool storageInitialized = false;
-uint32_t bootCount = 0;
-uint32_t writeCount = 0;
-
-// Forward declarations
-bool initStorage(bool forceFormat = false);
-bool readStorage(uint8_t* data, size_t maxSize, size_t* actualSize);
-bool writeStorage(const uint8_t* data, size_t size);
-uint32_t calculateCRC32(const uint8_t* data, size_t size);
-bool testWriteSector(uint32_t sectorIndex, const char* testMessage);
-void testFlashBoundaries();
+float simulatePressure() {
+  return 1013.0 + (random(100) - 50) / 10.0; // 1008.0 to 1018.0 hPa
+}
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
-  // Flash quickly at startup to show we're alive
-  for (int i = 0; i < 10; i++) {
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+  
+  // Blink LED to show we're alive
+  for (int i = 0; i < 5; i++) {
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(100);
+    digitalWrite(LED_BUILTIN, LOW);
     delay(100);
   }
   
-  Serial.begin(115200);
-  delay(3000);
+  // Initialize serial
+  Serial.begin(9600);
+  delay(500); // Give serial time to connect
   
-  Serial.println("\n\nRP2040 Safe Flash Storage");
-  Serial.println("=========================");
-  Serial.printf("Storage size: %d KB (%d sectors) at offset 0x%X\n", 
-               STORAGE_SIZE / 1024, STORAGE_SECTORS, FLASH_TARGET_OFFSET);
+  Serial.println("\nRP2040 Blob Storage Example");
+  Serial.println("===========================");
   
-  // Initialize our storage - no try/catch since exceptions are disabled
-  bool success = initStorage(FORCE_FORMAT);
+  // Setup button pins
+  pinMode(DEBUG_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(TEST_DATA_PIN, INPUT_PULLUP);
   
-  if (!success) {
-    Serial.println("ERROR: Failed to initialize storage!");
-    // Flash error pattern
-    while(1) {
-      for (int i = 0; i < 3; i++) {
-        digitalWrite(LED_BUILTIN, HIGH);
-        delay(100);
-        digitalWrite(LED_BUILTIN, LOW);
-        delay(100);
-      }
-      delay(1000);
+  // Initialize storage with format flag if needed
+  bool format = false; // Set this to true to format storage
+  if (!storage_init(format)) {
+    Serial.println("Failed to initialize storage!");
+    while (1) {
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(100);
+      digitalWrite(LED_BUILTIN, LOW);
+      delay(100);
     }
   }
   
-  Serial.printf("This is boot #%u\n\n", bootCount);
+  // Get storage info
+  uint32_t totalSectors, usedSectors, freeSectors;
+  storage_get_info(&totalSectors, &usedSectors, &freeSectors);
+  Serial.printf("Storage status: %u/%u sectors used, %u sectors free\n", 
+              usedSectors, totalSectors, freeSectors);
   
-  // Test by reading existing data
-  size_t dataSize = 0;
-  if (readStorage(buffer, sizeof(buffer) - sizeof(StorageHeader), &dataSize)) {
-    if (dataSize > 0) {
-      Serial.printf("Read %u bytes of data from storage\n", dataSize);
-      Serial.println("Data preview (ASCII):");
-      for (size_t i = 0; i < min(dataSize, 128UL); i++) {
-        if (buffer[i] >= 32 && buffer[i] <= 126) {
-          Serial.print((char)buffer[i]);
-        } else {
-          Serial.print('.');
-        }
-      }
-      Serial.println("\n");
+  // Get stored blob count
+  uint32_t blobCount = storage_get_reading_count();
+  Serial.printf("Stored readings: %u\n\n", blobCount);
+  
+  // Check for debug button (D20) - if grounded, dump all data
+  if (digitalRead(DEBUG_BUTTON_PIN) == LOW) {
+    Serial.println("DEBUG BUTTON DETECTED - Dumping all data");
+    Serial.println("=======================================");
+    
+    // Print storage summary
+    storage_print_summary();
+    
+    // Read ALL data (not just limited to 5)
+    Serial.println("\nReading ALL stored data:");
+    storage_read_existing_data(1000); // Read up to 1000 readings
+    
+    // Run some diagnostics and repair if needed
+    Serial.println("\nRunning storage diagnostics:");
+    if (storage_repair()) {
+      Serial.println("Storage repaired successfully!");
     } else {
-      Serial.println("No data found in storage");
+      Serial.println("Storage repair failed or wasn't needed");
     }
-  } else {
-    Serial.println("ERROR: Failed to read from storage");
+    
+    Serial.println("Debug data dump complete!");
+    Serial.println("=======================================");
+    delay(1000);
   }
   
-  // Write a small test message
-  char testData[256];
-  snprintf(testData, sizeof(testData), 
-          "Boot #%u - Safe storage test\n", bootCount);
-  
-  size_t writeSize = strlen(testData);
-  if (writeStorage((uint8_t*)testData, writeSize)) {
-    Serial.printf("Successfully wrote %u bytes to storage\n", writeSize);
-    Serial.printf("Content: %s\n", testData);
-  } else {
-    Serial.println("ERROR: Failed to write to storage");
+  // Check for test data button (D21) - if grounded, write test data
+  if (digitalRead(TEST_DATA_PIN) == LOW) {
+    Serial.println("TEST DATA BUTTON DETECTED - Writing test data");
+    Serial.println("=======================================");
+    
+    // Write a batch of test readings
+    int successCount = 0;
+    for (int i = 0; i < 10; i++) {
+      SensorDataPoint reading;
+      reading.sensorId = (i % 4) + 1; // Cycle through sensor types 1-4
+      reading.timestamp = millis() + i*1000; // Staggered timestamps
+      reading.valueCount = (reading.sensorId == 4) ? 3 : 1; // More values for accel
+      
+      // Set values based on sensor type
+      switch (reading.sensorId) {
+        case SENSOR_TEMPERATURE:
+          reading.values[0] = 20.0 + (random(100) / 10.0);
+          strcpy(reading.label, "Temp_Test");
+          break;
+        case SENSOR_HUMIDITY:
+          reading.values[0] = 50.0 + (random(200) / 10.0);
+          strcpy(reading.label, "Humid_Test");
+          break;
+        case SENSOR_PRESSURE:
+          reading.values[0] = 1000.0 + (random(300) / 10.0);
+          strcpy(reading.label, "Press_Test");
+          break;
+        case SENSOR_ACCELERATION:
+          reading.values[0] = (random(100) / 10.0);
+          reading.values[1] = (random(100) / 10.0);
+          reading.values[2] = (random(100) / 10.0);
+          strcpy(reading.label, "Accel_Test");
+          break;
+      }
+      
+      // Store reading and track success
+      yield();
+      if (storage_store_reading(reading, (SensorType)reading.sensorId)) {
+        successCount++;
+        Serial.printf("Stored test reading #%d: Sensor %d (%s)\n", 
+                    i+1, reading.sensorId, reading.label);
+      } else {
+        Serial.printf("Failed to store test reading #%d\n", i+1);
+      }
+      
+      delay(50);
+      yield();
+    }
+    
+    // Flush buffer to ensure all data is written
+    storage_flush();
+    
+    Serial.printf("Test data writing complete! %d/10 readings stored\n", successCount);
+    Serial.println("=======================================");
+    delay(1000);
   }
   
-  Serial.println("Storage initialization completed!");
-  Serial.printf("Next boot will be #%u\n", bootCount + 1);
-
-  // Add this to setup() after initialization to test boundaries
-  testFlashBoundaries();
+  // Delay before printing summary
+  delay(100);
+  yield();
+  
+  // Display a summary of stored data
+  Serial.println("Data summary before starting:");
+  storage_print_summary();
+  
+  // After printing the data summary in setup():
+  Serial.println("DEBUG: Summary printed, continuing to read existing data...");
+  
+  // IMPORTANT: Add a longer delay after intensive summary operation
+  delay(500);
+  yield();
+  
+  // If there are existing readings, demonstrate deletion of oldest reading
+  if (storage_get_reading_count() > 10) {
+    Serial.println("\nDemonstrating deletion of oldest reading:");
+    
+    // Add yield before deletion
+    yield();
+    delay(50);
+    
+    // Print before deletion
+    Serial.printf("Before deletion: %u readings\n", storage_get_reading_count());
+    
+    // Perform deletion with debug print
+    Serial.println("Calling storage_delete_reading(0)...");
+    bool deleteSuccessful = storage_delete_reading(0);
+    
+    // Add substantial delay after deletion
+    delay(200);
+    yield();
+    
+    // Print deletion result
+    Serial.printf("Deletion operation %s\n", deleteSuccessful ? "succeeded" : "failed");
+    
+    // Small delay before getting updated count
+    delay(100);
+    yield();
+    
+    // Get updated reading count
+    uint32_t newCount = storage_get_reading_count();
+    Serial.printf("Readings after deletion: %u\n\n", newCount);
+    
+    // Final yield
+    delay(100);
+    yield();
+  }
+  
+  // Delay before reading data
+  delay(200);
+  yield();
+  
+  // Read and display existing data using safer method
+  Serial.println("Reading existing data safely...");
+  storage_read_existing_data(5); // Limit to 5 readings for safety
+  
+  // Delay before storing new reading
+  delay(200);
+  yield();
+  
+  // Store a new reading on each boot
+  Serial.println("DEBUG: About to store new temperature reading...");
+  SensorDataPoint tempReading;
+  tempReading.sensorId = 1;
+  tempReading.timestamp = millis();
+  tempReading.values[0] = simulateTemperature();
+  tempReading.valueCount = 1;
+  strcpy(tempReading.label, "Temp Sensor");
+  
+  if (storage_store_reading(tempReading, SENSOR_TEMPERATURE)) {
+    Serial.println("\nStored new temperature reading:");
+    Serial.printf("  Value: %.2f °C\n", tempReading.values[0]);
+  } else {
+    Serial.println("\nFailed to store temperature reading!");
+  }
+  
+  // Final delay before entering main loop
+  delay(300);
+  yield();
+  
+  Serial.println("DEBUG: Setup phase complete, entering main loop...");
 }
 
 void loop() {
-  // Simple heartbeat
+  // Heartbeat LED
   static unsigned long lastBlink = 0;
-  if (millis() - lastBlink > 1000) {
+  if (millis() - lastBlink > 500) {
     lastBlink = millis();
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   }
   
-  // Perform continuous write test if enabled (but be conservative)
-  if (CONTINUOUS_WRITE_TEST) {
+  // Add periodic yield to keep system responsive
+  static unsigned long lastYield = 0;
+  if (millis() - lastYield > 100) {
+    lastYield = millis();
+    yield();
+  }
+  
+  // Generate new readings periodically
+  if (ENABLE_DEMO_WRITES) {
     static unsigned long lastWrite = 0;
-    // Only write every 30 seconds to avoid excessive flash wear
-    if (millis() - lastWrite > 3000) {
+    if (millis() - lastWrite > 10000) {  // Increased to every 10 seconds (was 5 seconds)
       lastWrite = millis();
-      writeCount++;
       
-      char testData[64];
-      snprintf(testData, sizeof(testData), 
-              "Test write #%u at %lu ms\n", 
-              writeCount, millis());
+      // Random sensor selection
+      int sensorType = random(4) + 1; // 1-4
+      SensorDataPoint reading;
+      reading.sensorId = sensorType;
+      reading.timestamp = millis();
+      reading.valueCount = 1;
       
-      if (writeStorage((uint8_t*)testData, strlen(testData))) {
-        Serial.printf("Write test #%u successful\n", writeCount);
+      switch (sensorType) {
+        case SENSOR_TEMPERATURE:
+          reading.values[0] = simulateTemperature();
+          strcpy(reading.label, "Temperature");
+          break;
+        case SENSOR_HUMIDITY:
+          reading.values[0] = simulateHumidity();
+          strcpy(reading.label, "Humidity");
+          break;
+        case SENSOR_PRESSURE:
+          reading.values[0] = simulatePressure();
+          strcpy(reading.label, "Pressure");
+          break;
+        case SENSOR_ACCELERATION:
+          reading.values[0] = random(100) / 10.0;
+          reading.values[1] = random(100) / 10.0;
+          reading.values[2] = random(100) / 10.0;
+          reading.valueCount = 3;
+          strcpy(reading.label, "Accel");
+          break;
+      }
+      
+      // Yield before storage operation
+      yield();
+      
+      // Store the reading
+      if (storage_store_reading(reading, (SensorType)sensorType)) {
+        Serial.printf("Stored %s reading: ", reading.label);
+        for (int i = 0; i < reading.valueCount; i++) {
+          Serial.printf("%.2f ", reading.values[i]);
+        }
+        Serial.println();
+        
+        // Display storage usage every 5 readings instead of 10
+        static int writeCount = 0;
+        if (++writeCount % 5 == 0) {
+          // Yield before querying storage info
+          yield();
+          
+          uint32_t totalSectors, usedSectors, freeSectors;
+          storage_get_info(&totalSectors, &usedSectors, &freeSectors);
+          Serial.printf("Storage: %u/%u sectors used, %u sectors free\n", 
+                      usedSectors, totalSectors, freeSectors);
+          
+          // Manually flush buffer every 15 readings to avoid large flushes
+          if (writeCount % 15 == 0) {
+            Serial.println("Flushing buffer to maintain stability...");
+            storage_flush();
+            
+            // Delay after flush
+            delay(200);
+            yield();
+          }
+        }
       } else {
-        Serial.printf("Write test #%u FAILED\n", writeCount);
+        Serial.println("Failed to store reading!");
       }
     }
   }
   
-  delay(10);
-}
-
-// Initialize the storage system
-bool initStorage(bool forceFormat) {
-  // Copy current flash content to our buffer (safely)
-  memcpy(buffer, (void*)(XIP_BASE + FLASH_TARGET_OFFSET), sizeof(buffer));
-  
-  // Check if there's a valid header
-  StorageHeader* header = (StorageHeader*)buffer;
-  
-  if (!forceFormat && header->magic == STORAGE_MAGIC) {
-    Serial.printf("Storage header found: version %u, data size %u bytes, boot count %u\n", 
-                 header->version, header->dataSize, header->bootCount);
+  // Process serial commands
+  if (Serial.available()) {
+    // Add yield before serial processing
+    yield();
     
-    // Increment boot count
-    bootCount = header->bootCount + 1;
-    header->bootCount = bootCount;
-    header->writeCount = 0; // Reset write count for this boot
+    String command = Serial.readStringUntil('\n');
+    command.trim();
     
-    // Write the updated header with incremented boot count
-    uint32_t ints = save_and_disable_interrupts();
-    flash_range_erase(FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
-    flash_range_program(FLASH_TARGET_OFFSET, buffer, FLASH_SECTOR_SIZE);
-    restore_interrupts(ints);
-    
-  } else {
-    // Initialize or reformat
-    if (forceFormat) {
-      Serial.println("Forced format requested - initializing storage");
-    } else {
-      Serial.println("No valid storage header found - initializing new storage");
+    if (command == "summary") {
+      // Show data summary
+      storage_print_summary();
+      
+      // Add delay after intensive operation
+      delay(300);
+      yield();
     }
-    
-    // Clear buffer first for safety
-    memset(buffer, 0, sizeof(buffer));
-    
-    // Set up new header
-    header->magic = STORAGE_MAGIC;
-    header->version = 1;
-    header->dataSize = 0;
-    header->bootCount = 1; // Start at 1 for the first boot
-    header->writeCount = 0;
-    header->crc = 0;
-    
-    // Write the empty header to flash
-    uint32_t ints = save_and_disable_interrupts();
-    flash_range_erase(FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
-    flash_range_program(FLASH_TARGET_OFFSET, buffer, FLASH_SECTOR_SIZE);
-    restore_interrupts(ints);
-    
-    bootCount = 1;
-    writeCount = 0;
-  }
-  
-  storageInitialized = true;
-  return true;
-}
-
-// Read data from storage
-bool readStorage(uint8_t* data, size_t maxSize, size_t* actualSize) {
-  if (!storageInitialized && !initStorage(false)) {
-    return false;
-  }
-  
-  // Read header directly from flash
-  StorageHeader header;
-  memcpy(&header, (void*)(XIP_BASE + FLASH_TARGET_OFFSET), sizeof(StorageHeader));
-  
-  // Check header
-  if (header.magic != STORAGE_MAGIC) {
-    Serial.println("Invalid magic number in storage header during read");
-    return false;
-  }
-  
-  // Safety check data size
-  if (header.dataSize > STORAGE_SIZE - sizeof(StorageHeader)) {
-    Serial.println("Invalid data size in header");
-    *actualSize = 0;
-    return false;
-  }
-  
-  // Calculate safe amount to copy
-  size_t copySize = min(maxSize, header.dataSize);
-  
-  // Read data directly from flash
-  memcpy(data, (void*)(XIP_BASE + FLASH_TARGET_OFFSET + sizeof(StorageHeader)), copySize);
-  *actualSize = copySize;
-  
-  return true;
-}
-
-// Write data to storage - simplified version
-bool writeStorage(const uint8_t* data, size_t size) {
-  // Safety checks
-  if (!storageInitialized && !initStorage(false)) {
-    return false;
-  }
-  
-  if (size > STORAGE_SIZE - sizeof(StorageHeader)) {
-    Serial.println("ERROR: Data too large for storage");
-    return false;
-  }
-  
-  // Read the current header
-  StorageHeader header;
-  memcpy(&header, (void*)(XIP_BASE + FLASH_TARGET_OFFSET), sizeof(StorageHeader));
-  
-  // Update header for new write
-  header.magic = STORAGE_MAGIC;
-  header.version = 1;
-  header.dataSize = size;
-  header.bootCount = bootCount;
-  header.writeCount = ++writeCount;
-  header.crc = calculateCRC32(data, size);
-  
-  // Copy header to buffer
-  memcpy(buffer, &header, sizeof(header));
-  
-  // Copy data after header
-  size_t dataInFirstSector = min(size, FLASH_SECTOR_SIZE - sizeof(StorageHeader));
-  memcpy(buffer + sizeof(StorageHeader), data, dataInFirstSector);
-  
-  // Erase and write first sector with header and initial data
-  uint32_t ints = save_and_disable_interrupts();
-  flash_range_erase(FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
-  flash_range_program(FLASH_TARGET_OFFSET, buffer, FLASH_SECTOR_SIZE);
-  
-  // If there's more data, write it sector by sector
-  if (size > dataInFirstSector) {
-    size_t remaining = size - dataInFirstSector;
-    size_t offset = dataInFirstSector;
-    size_t sectorOffset = 1;
-    
-    while (remaining > 0 && sectorOffset < STORAGE_SECTORS) {
-      // Clear buffer for safety
-      memset(buffer, 0, FLASH_SECTOR_SIZE);
+    else if (command == "flush") {
+      // Force flush
+      Serial.println("Forcing buffer flush...");
+      if (storage_flush()) {
+        Serial.println("Flush successful");
+      }
       
-      // Copy next chunk of data
-      size_t chunkSize = min(remaining, FLASH_SECTOR_SIZE);
-      memcpy(buffer, data + offset, chunkSize);
+      // Add delay after flush
+      delay(200);
+      yield();
+    }
+    else if (command == "compact") {
+      // Compact storage
+      Serial.println("Compacting storage...");
+      if (storage_compact()) {
+        Serial.println("Compaction successful");
+      }
       
-      // Erase and write this sector
-      flash_range_erase(FLASH_TARGET_OFFSET + (sectorOffset * FLASH_SECTOR_SIZE), FLASH_SECTOR_SIZE);
-      flash_range_program(FLASH_TARGET_OFFSET + (sectorOffset * FLASH_SECTOR_SIZE), buffer, FLASH_SECTOR_SIZE);
+      // Add delay after compact
+      delay(300);
+      yield();
+    }
+    else if (command.startsWith("delete ")) {
+      // Delete a specific reading
+      int index = command.substring(7).toInt();
+      Serial.printf("Deleting reading %d...\n", index);
+      if (storage_delete_reading(index)) {
+        Serial.println("Deletion successful");
+      }
       
-      remaining -= chunkSize;
-      offset += chunkSize;
-      sectorOffset++;
+      // Add delay after deletion
+      delay(100);
+      yield();
+    }
+    else if (command == "help") {
+      // Show help
+      Serial.println("\nAvailable commands:");
+      Serial.println("summary - Show storage summary");
+      Serial.println("flush - Force buffer flush");
+      Serial.println("compact - Compact storage");
+      Serial.println("delete X - Delete reading at index X");
+      Serial.println("help - Show this help");
     }
   }
   
-  restore_interrupts(ints);
-  return true;
-}
-
-// CRC32 calculation
-uint32_t calculateCRC32(const uint8_t* data, size_t size) {
-  uint32_t crc = 0xFFFFFFFF;
-  for (size_t i = 0; i < size; i++) {
-    crc ^= data[i];
-    for (int j = 0; j < 8; j++) {
-      crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
-    }
-  }
-  return ~crc;
-}
-
-// Test writing to a specific sector
-bool testWriteSector(uint32_t sectorIndex, const char* testMessage) {
-  if (sectorIndex >= STORAGE_SECTORS) {
-    Serial.printf("Error: Sector %u is beyond our storage area\n", sectorIndex);
-    return false;
+  // At the beginning of loop():
+  static bool firstLoop = true;
+  if (firstLoop) {
+    Serial.println("DEBUG: First loop() execution");
+    firstLoop = false;
   }
   
-  uint32_t sectorOffset = FLASH_TARGET_OFFSET + (sectorIndex * FLASH_SECTOR_SIZE);
+  // Check if buffer needs to be flushed
+  storage_check_flush();
   
-  // Prepare test data
-  memset(buffer, 0xAA, FLASH_SECTOR_SIZE); // Fill with pattern
-  size_t msgLen = strlen(testMessage);
-  memcpy(buffer, testMessage, msgLen);
-  sprintf((char*)buffer + msgLen, " (Sector %u at offset 0x%X)", 
-         sectorIndex, sectorOffset);
-  
-  // Write to the sector
-  uint32_t ints = save_and_disable_interrupts();
-  flash_range_erase(sectorOffset, FLASH_SECTOR_SIZE);
-  flash_range_program(sectorOffset, buffer, FLASH_SECTOR_SIZE);
-  restore_interrupts(ints);
-  
-  Serial.printf("Wrote test data to sector %u (offset 0x%X)\n", 
-               sectorIndex, sectorOffset);
-  return true;
-}
-
-// Add this to setup() after initialization to test boundaries
-void testFlashBoundaries() {
-  Serial.println("\nTesting flash storage boundaries...");
-  
-  // Test first sector (already contains our header)
-  Serial.println("First sector already contains our header");
-  
-  // Test last sector
-  if (testWriteSector(STORAGE_SECTORS - 1, "Testing last sector")) {
-    Serial.println("Last sector write successful!");
-  }
-  
-  // Test middle sector
-  if (testWriteSector(STORAGE_SECTORS / 2, "Testing middle sector")) {
-    Serial.println("Middle sector write successful!");
-  }
-  
-  Serial.println("Boundary testing completed");
+  // Slightly longer delay to reduce CPU load
+  delay(20);
 }
