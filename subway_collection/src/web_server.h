@@ -55,10 +55,36 @@ void handleClient(WiFiClient &client) {
     else if (path == "/chart.js") {
         serveCompressedFile(client, chart_js, chart_js_len, "application/javascript");
     }
-    else if (path == "/imu_data") {
+    else if (path == "/api/sensors") {
+        // Return list of all available sensors
+        client.println("HTTP/1.1 200 OK");
+        client.println("Content-Type: application/json");
+        client.println("Access-Control-Allow-Origin: *");
+        client.println();
+        
+        // Create JSON document for sensors list
+        StaticJsonDocument<1024> doc;
+        JsonArray sensorsArray = doc.to<JsonArray>();
+        
+        for (int i = 0; i < NUM_AVAILABLE_SENSORS; i++) {
+            const SensorConfig& config = AVAILABLE_SENSORS[i];
+            if (config.enabled) {
+                JsonObject sensor = sensorsArray.createNestedObject();
+                sensor["name"] = config.name;
+                sensor["endpoint"] = config.apiEndpoint;
+                sensor["type"] = config.type;
+            }
+        }
+        
+        serializeJson(doc, client);
+        client.println();
+    }
+    else if (path == "/api/imu/data" || path == "/imu_data") {
+        // Legacy endpoint support
         serveIMUData(client);
     }
-    else if (path == "/imu_history") {
+    else if (path == "/api/imu/history" || path == "/imu_history") {
+        // Legacy endpoint support
         serveIMUHistory(client);
     }
     // Handle LED control requests
@@ -87,75 +113,47 @@ void handleClient(WiFiClient &client) {
 }
 
 void serveIMUData(WiFiClient &client) {
+    // Create a JSON document
+    StaticJsonDocument<256> doc;
+    
+    // Let the sensor manager populate it with current data
+    JsonObject json = doc.to<JsonObject>();
+    sensorManager.serializeAllCurrentData(json);
+    
+    // Send HTTP headers
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: application/json");
     client.println("Access-Control-Allow-Origin: *");
     client.println();
     
-    client.print("{\"timestamp\":");
-    client.print(lastReadTime);
-    client.print(",\"accel\":{\"x\":");
-    client.print(accelX);
-    client.print(",\"y\":");
-    client.print(accelY);
-    client.print(",\"z\":");
-    client.print(accelZ);
-    client.print("},\"gyro\":{\"x\":");
-    client.print(gyroX);
-    client.print(",\"y\":");
-    client.print(gyroY);
-    client.print(",\"z\":");
-    client.print(gyroZ);
-    client.print("},\"temperature\":");
-    client.print(temperature);
-    client.println("}");
+    // Serialize JSON directly to client
+    serializeJson(doc, client);
+    client.println();
 }
 
 void serveIMUHistory(WiFiClient &client) {
+    // Create a JSON document for history data
+    // Size calculated based on buffer entries and estimated size per entry
+    const size_t capacity = JSON_ARRAY_SIZE(SENSOR_BUFFER_SIZE) + 
+                           SENSOR_BUFFER_SIZE * JSON_OBJECT_SIZE(4) + 
+                           SENSOR_BUFFER_SIZE * 2 * JSON_OBJECT_SIZE(3);
+    DynamicJsonDocument doc(capacity);
+    
+    // Create JSON array
+    JsonArray array = doc.to<JsonArray>();
+    
+    // Let the sensor manager populate it with history data
+    sensorManager.serializeAllHistoryData(array);
+    
+    // Send HTTP headers
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: application/json");
     client.println("Access-Control-Allow-Origin: *");
     client.println();
     
-    // Start JSON array
-    client.println("[");
-    
-    // Current position in the circular buffer
-    int currentPos = bufferIndex;
-    
-    // Iterate through the buffer and output each entry
-    for (int i = 0; i < BUFFER_SIZE; i++) {
-        // Calculate the actual index, accounting for the circular nature
-        int idx = (currentPos - BUFFER_SIZE + i) % BUFFER_SIZE;
-        if (idx < 0) idx += BUFFER_SIZE;
-        
-        // Only output entries with valid timestamps
-        if (timestamp_buffer[idx] > 0) {
-            // If not the first entry, add a comma
-            if (i > 0) client.println(",");
-            
-            client.print("{\"timestamp\":");
-            client.print(timestamp_buffer[idx]);
-            client.print(",\"accel\":{\"x\":");
-            client.print(accelX_buffer[idx]);
-            client.print(",\"y\":");
-            client.print(accelY_buffer[idx]);
-            client.print(",\"z\":");
-            client.print(accelZ_buffer[idx]);
-            client.print("},\"gyro\":{\"x\":");
-            client.print(gyroX_buffer[idx]);
-            client.print(",\"y\":");
-            client.print(gyroY_buffer[idx]);
-            client.print(",\"z\":");
-            client.print(gyroZ_buffer[idx]);
-            client.print("},\"temperature\":");
-            client.print(temperature_buffer[idx]);
-            client.print("}");
-        }
-    }
-    
-    // End JSON array
-    client.println("]");
+    // Serialize JSON directly to client
+    serializeJson(doc, client);
+    client.println();
 }
 
 #endif

@@ -50,9 +50,9 @@ void setup() {
   }
   Serial.println();
 
-  // Initialize the IMU sensor
-  if (!setupSensor()) {
-    Serial.println("Failed to setup sensor! Check wiring.");
+  // Initialize sensors
+  if (!setupSensors()) {
+    Serial.println("Failed to setup sensors! Check wiring.");
     while(1); // Stop if sensor setup fails
   }
 
@@ -73,8 +73,8 @@ void setup() {
 }
 
 void loop() {
-  // Update IMU sensor readings
-  updateSensor();
+  // Update all sensor readings
+  updateSensors();
 
   // Handle any incoming client connections
   WiFiClient client = server.available();
@@ -82,6 +82,6 @@ void loop() {
     handleClient(client);
   }
   
-  // Add a small delay to prevent overwhelming the IMU
-  delay(50);
+  // Add a delay based on sensor configuration
+  delay(SENSOR_UPDATE_INTERVAL);
 }
