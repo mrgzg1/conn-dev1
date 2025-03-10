@@ -13,6 +13,7 @@
 // Define sensor types
 enum SensorType {
   SENSOR_TYPE_IMU,
+  SENSOR_TYPE_BME280,  // Combined temp/humidity/pressure
   SENSOR_TYPE_TEMP,
   SENSOR_TYPE_HUMIDITY,
   SENSOR_TYPE_PRESSURE,
@@ -40,18 +41,19 @@ const SensorConfig AVAILABLE_SENSORS[] = {
     SENSOR_UPDATE_INTERVAL, // updateInterval
     "IMU Sensor",         // name
     "imu"                 // apiEndpoint
+  },
+  
+  // BME280 Environmental Sensor (temperature, humidity, pressure)
+  {
+    true,                 // enabled by default
+    SENSOR_TYPE_BME280,   // type
+    SENSOR_BUFFER_SIZE,   // bufferSize
+    SENSOR_UPDATE_INTERVAL, // updateInterval
+    "BME280 Environment", // name
+    "bme280"              // apiEndpoint
   }
   
   // Add more sensors here as needed
-  // Example:
-  // {
-  //   false,               // disabled by default
-  //   SENSOR_TYPE_HUMIDITY,// type
-  //   SENSOR_BUFFER_SIZE,  // bufferSize
-  //   SENSOR_UPDATE_INTERVAL, // updateInterval
-  //   "Humidity Sensor",   // name
-  //   "humidity"           // apiEndpoint
-  // }
 };
 
 // Number of available sensors

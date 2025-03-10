@@ -31,6 +31,9 @@ void setup() {
     // Wait for serial port to connect
     delay(10);
   }
+  
+  // Initialize I2C
+  Wire.begin();
 
   Serial.println("\n=== IMU Data Collection Starting ===");
     
@@ -72,6 +75,10 @@ void setup() {
   Serial.println("Server started");
 }
 
+// Status reporting variables
+unsigned long lastStatusTime = 0;
+const unsigned long STATUS_INTERVAL = 10000; // 10 seconds
+
 void loop() {
   // Update all sensor readings
   updateSensors();
@@ -80,6 +87,27 @@ void loop() {
   WiFiClient client = server.available();
   if (client) {
     handleClient(client);
+  }
+  
+  // Periodic status report
+  unsigned long currentTime = millis();
+  if (currentTime - lastStatusTime > STATUS_INTERVAL) {
+    Serial.println("\n==== Status Update ====");
+    Serial.print("Uptime: ");
+    Serial.print(currentTime / 1000);
+    Serial.println(" seconds");
+    
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+    
+    Serial.print("Signal Strength: ");
+    Serial.print(WiFi.RSSI());
+    Serial.println(" dBm");
+    
+    // Memory info not available on all boards
+    Serial.println("Active and monitoring...");
+    
+    lastStatusTime = currentTime;
   }
   
   // Add a delay based on sensor configuration

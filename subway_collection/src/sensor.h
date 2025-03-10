@@ -3,6 +3,8 @@
 
 #include <Arduino_LSM6DS3.h>
 #include <ArduinoJson.h>
+#include <Wire.h>
+#include <BME280I2C.h>
 #include "sensor_config.h"
 
 // Forward declaration for the SensorManager
@@ -75,16 +77,42 @@ public:
     // Read accelerometer data if available
     if (IMU.accelerationAvailable()) {
       IMU.readAcceleration(currentAccel.x, currentAccel.y, currentAccel.z);
+      
+      // Log every 100th reading to avoid flooding serial
+      if (updateCount % 100 == 0) {
+        Serial.print("Accel: x=");
+        Serial.print(currentAccel.x);
+        Serial.print(" y=");
+        Serial.print(currentAccel.y);
+        Serial.print(" z=");
+        Serial.println(currentAccel.z);
+      }
     }
     
     // Read gyroscope data if available
     if (IMU.gyroscopeAvailable()) {
       IMU.readGyroscope(currentGyro.x, currentGyro.y, currentGyro.z);
+      
+      // Log every 100th reading
+      if (updateCount % 100 == 0) {
+        Serial.print("Gyro: x=");
+        Serial.print(currentGyro.x);
+        Serial.print(" y=");
+        Serial.print(currentGyro.y);
+        Serial.print(" z=");
+        Serial.println(currentGyro.z);
+      }
     }
     
     // Read temperature data if available
     if (IMU.temperatureAvailable()) {
       IMU.readTemperature(currentTemp);
+      
+      // Log every 100th reading
+      if (updateCount % 100 == 0) {
+        Serial.print("Temp: ");
+        Serial.println(currentTemp);
+      }
     }
     
     // Record timestamp and update buffer
@@ -98,6 +126,7 @@ public:
     
     // Increment buffer index (circular buffer)
     bufferIndex = (bufferIndex + 1) % bufferSize;
+    updateCount++;
   }
   
   void serializeCurrentData(JsonObject& json) override {
@@ -152,11 +181,139 @@ private:
   Vector3D currentGyro;
   float currentTemp = 0;
   unsigned long currentTimestamp = 0;
+  unsigned long updateCount = 0;
   
   // Circular buffers
   Vector3D* accelBuffer;
   Vector3D* gyroBuffer;
   float* tempBuffer;
+  unsigned long* timestampBuffer;
+};
+
+// BME280 Environmental Sensor
+class BME280Sensor : public Sensor {
+public:
+  BME280Sensor(int bufferSize = SENSOR_BUFFER_SIZE) : bufferSize(bufferSize) {
+    // Allocate memory for buffers
+    tempBuffer = new float[bufferSize];
+    humBuffer = new float[bufferSize];
+    presBuffer = new float[bufferSize];
+    timestampBuffer = new unsigned long[bufferSize];
+    
+    // Initialize buffers
+    for (int i = 0; i < bufferSize; i++) {
+      timestampBuffer[i] = 0;
+    }
+  }
+  
+  ~BME280Sensor() {
+    delete[] tempBuffer;
+    delete[] humBuffer;
+    delete[] presBuffer;
+    delete[] timestampBuffer;
+  }
+  
+  bool setup() override {
+    Wire.begin();
+    
+    // Initialize BME280 sensor with default parameters
+    while (!bme.begin()) {
+      Serial.println("Could not find BME280 sensor!");
+      delay(1000);
+    }
+    
+    // Report chip model
+    switch(bme.chipModel()) {
+      case BME280::ChipModel_BME280:
+        Serial.println("Found BME280 sensor! Success.");
+        break;
+      case BME280::ChipModel_BMP280:
+        Serial.println("Found BMP280 sensor! No Humidity available.");
+        break;
+      default:
+        Serial.println("Found UNKNOWN sensor! Error!");
+        return false;
+    }
+    
+    return true;
+  }
+  
+  void update() override {
+    // Read BME280 values
+    bme.read(currentPres, currentTemp, currentHum, BME280::TempUnit_Celsius, BME280::PresUnit_Pa);
+    
+    // Log every 100th reading to avoid flooding serial
+    if (updateCount % 100 == 0) {
+      Serial.print("BME280: Temp=");
+      Serial.print(currentTemp);
+      Serial.print("°C, Humidity=");
+      Serial.print(currentHum);
+      Serial.print("%, Pressure=");
+      Serial.print(currentPres);
+      Serial.println(" Pa");
+    }
+    
+    // Record timestamp and update buffer
+    currentTimestamp = millis();
+    
+    // Store in circular buffer
+    tempBuffer[bufferIndex] = currentTemp;
+    humBuffer[bufferIndex] = currentHum;
+    presBuffer[bufferIndex] = currentPres;
+    timestampBuffer[bufferIndex] = currentTimestamp;
+    
+    // Increment buffer index (circular buffer)
+    bufferIndex = (bufferIndex + 1) % bufferSize;
+    updateCount++;
+  }
+  
+  void serializeCurrentData(JsonObject& json) override {
+    json["timestamp"] = currentTimestamp;
+    json["temperature"] = currentTemp;
+    json["humidity"] = currentHum;
+    json["pressure"] = currentPres;
+  }
+  
+  void serializeHistoryData(JsonArray& array) override {
+    // Start from the current position in the circular buffer
+    int currentPos = bufferIndex;
+    
+    // Iterate through the buffer and output each entry
+    for (int i = 0; i < bufferSize; i++) {
+      // Calculate the actual index, accounting for the circular nature
+      int idx = (currentPos - bufferSize + i) % bufferSize;
+      if (idx < 0) idx += bufferSize;
+      
+      // Only output entries with valid timestamps
+      if (timestampBuffer[idx] > 0) {
+        JsonObject entry = array.createNestedObject();
+        
+        entry["timestamp"] = timestampBuffer[idx];
+        entry["temperature"] = tempBuffer[idx];
+        entry["humidity"] = humBuffer[idx];
+        entry["pressure"] = presBuffer[idx];
+      }
+    }
+  }
+  
+private:
+  int bufferSize;
+  int bufferIndex = 0;
+  unsigned long updateCount = 0;
+  
+  // BME280 instance
+  BME280I2C bme;
+  
+  // Current readings
+  float currentTemp = 0;
+  float currentHum = 0;
+  float currentPres = 0;
+  unsigned long currentTimestamp = 0;
+  
+  // Circular buffers
+  float* tempBuffer;
+  float* humBuffer;
+  float* presBuffer;
   unsigned long* timestampBuffer;
 };
 
@@ -262,12 +419,13 @@ bool setupSensors() {
       case SENSOR_TYPE_IMU:
         sensor = new IMUSensor(config.bufferSize);
         break;
+      
+      case SENSOR_TYPE_BME280:
+        sensor = new BME280Sensor(config.bufferSize);
+        break;
         
       // Add more sensor types here as needed
-      // case SENSOR_TYPE_HUMIDITY:
-      //   sensor = new HumiditySensor(config.bufferSize);
-      //   break;
-        
+      
       default:
         Serial.print("Unknown sensor type: ");
         Serial.println(config.type);
