@@ -1,4 +1,132 @@
-// Make the component globally available
+// Helper function to get nested object values using dot notation
+const getNestedValue = (obj, path) => {
+  if (!obj) return null;
+  return path.split('.').reduce((prev, curr) => {
+    return prev ? prev[curr] : null;
+  }, obj);
+};
+
+// Custom Chart component for configured views
+window.CustomSensorChart = ({ view, sensorData, sensorHistory, title }) => {
+  const chartRef = React.useRef(null);
+  const chartInstance = React.useRef(null);
+
+  const updateChart = () => {
+    if (!chartRef.current) return;
+    
+    // Destroy existing chart
+    if (chartInstance.current) {
+      chartInstance.current.destroy();
+    }
+    
+    // Check if we have data for any of the metrics
+    const hasData = view.metrics.some(metric => 
+      sensorHistory[metric.sensorType] && sensorHistory[metric.sensorType].length > 0
+    );
+    
+    if (!hasData) return;
+    
+    // Extract timestamps from the first available sensor data
+    let timestamps = [];
+    for (const metric of view.metrics) {
+      if (sensorHistory[metric.sensorType] && sensorHistory[metric.sensorType].length > 0) {
+        timestamps = sensorHistory[metric.sensorType].map(entry => {
+          const date = new Date(entry.timestamp);
+          return date.toLocaleTimeString();
+        });
+        break;
+      }
+    }
+    
+    // Create datasets for each metric
+    const datasets = view.metrics.map(metric => {
+      const history = sensorHistory[metric.sensorType] || [];
+      const data = history.map(entry => {
+        let value = getNestedValue(entry, metric.dataKey);
+        return metric.transform ? metric.transform(value) : value;
+      });
+      
+      return {
+        label: metric.label,
+        data: data,
+        borderColor: metric.color,
+        backgroundColor: metric.color.replace('1)', '0.1)'),
+        borderWidth: 2,
+        fill: false,
+        tension: 0.2 // Adds smoother curves
+      };
+    });
+    
+    const ctx = chartRef.current.getContext('2d');
+    
+    chartInstance.current = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: timestamps,
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Time'
+            }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'Value'
+            },
+            beginAtZero: false
+          }
+        },
+        plugins: {
+          title: {
+            display: true,
+            text: title || view.title
+          },
+          legend: {
+            position: 'top',
+          }
+        }
+      }
+    });
+  };
+
+  React.useEffect(() => {
+    updateChart();
+    return () => {
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+      }
+    };
+  }, [view, sensorHistory, title]);
+
+  return (
+    <div style={{ width: '100%', height: '100%' }}>
+      {view.metrics.some(metric => 
+        sensorHistory[metric.sensorType] && sensorHistory[metric.sensorType].length > 0
+      ) ? (
+        <canvas ref={chartRef} />
+      ) : (
+        <div style={{ 
+          height: '100%', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          color: '#666'
+        }}>
+          No historical data available yet
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Original SensorHistoryChart for backward compatibility
 window.SensorHistoryChart = ({ history, sensorType, title }) => {
   const chartRef = React.useRef(null);
   const chartInstance = React.useRef(null);
