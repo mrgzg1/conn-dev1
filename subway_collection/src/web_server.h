@@ -71,13 +71,13 @@ void handleClient(WiFiClient &client) {
         client.println();
         
         // Create JSON document for sensors list
-        StaticJsonDocument<1024> doc;
+        JsonDocument doc;
         JsonArray sensorsArray = doc.to<JsonArray>();
         
         for (int i = 0; i < NUM_AVAILABLE_SENSORS; i++) {
             const SensorConfig& config = AVAILABLE_SENSORS[i];
             if (config.enabled) {
-                JsonObject sensor = sensorsArray.createNestedObject();
+                JsonObject sensor = sensorsArray.add<JsonObject>();
                 sensor["name"] = config.name;
                 sensor["endpoint"] = config.apiEndpoint;
                 sensor["type"] = config.type;
@@ -251,7 +251,6 @@ void serveSensorHistory(WiFiClient &client, String sensorEndpoint) {
     }
     
     // Create a JSON document for history data
-    const size_t capacity = 15000; // Should be enough for most sensors
     JsonDocument doc;
     
     // Create JSON array

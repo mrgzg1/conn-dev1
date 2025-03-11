@@ -198,7 +198,7 @@ const CustomViewPanel = ({ view, sensorData, sensorHistory, refreshAllData, load
       
       {/* Custom Chart */}
       <div className="chart-container">
-        <CustomSensorChart 
+        <window.CustomSensorChart 
           view={view}
           sensorData={sensorData}
           sensorHistory={sensorHistory}
@@ -245,6 +245,218 @@ const CustomViewPanel = ({ view, sensorData, sensorHistory, refreshAllData, load
   );
 };
 
+// Sensor data store for persistent browser storage
+class SensorDataStore {
+  constructor() {
+    this.store = this.loadFromLocalStorage() || this.createInitialStore();
+  }
+  
+  loadFromLocalStorage() {
+    const data = localStorage.getItem('subwaySensorData');
+    return data ? JSON.parse(data) : null;
+  }
+  
+  saveToLocalStorage() {
+    localStorage.setItem('subwaySensorData', JSON.stringify(this.store));
+  }
+  
+  createInitialStore() {
+    return {
+      sessions: [],
+      currentSession: null
+    };
+  }
+  
+  createNewSession(firstDataPoint) {
+    const sessionId = Date.now().toString();
+    const realWorldTime = new Date().toISOString();
+    const lowestTimestamp = this.findLowestTimestamp(firstDataPoint);
+    
+    const session = {
+      id: sessionId,
+      startRealTime: realWorldTime,
+      deviceBootTime: lowestTimestamp,
+      data: {}
+    };
+    
+    // Initialize storage for each sensor type
+    Object.keys(firstDataPoint.sensors).forEach(sensorKey => {
+      session.data[sensorKey] = { history: [], latestTimestamp: 0 };
+    });
+    
+    this.store.sessions.push(session);
+    this.store.currentSession = sessionId;
+    this.saveToLocalStorage();
+    
+    return session;
+  }
+  
+  findLowestTimestamp(data) {
+    // Find earliest timestamp in the dataset
+    let lowestTime = Number.MAX_SAFE_INTEGER;
+    
+    Object.keys(data.sensors).forEach(sensorKey => {
+      const sensor = data.sensors[sensorKey];
+      if (sensor.historyData && sensor.historyData.length > 0) {
+        // Find first entry with valid timestamp
+        const firstValidEntry = sensor.historyData.find(entry => 
+          entry.timestamp !== null && entry.timestamp > 0
+        );
+        if (firstValidEntry && firstValidEntry.timestamp < lowestTime) {
+          lowestTime = firstValidEntry.timestamp;
+        }
+      }
+    });
+    
+    return lowestTime === Number.MAX_SAFE_INTEGER ? 0 : lowestTime;
+  }
+  
+  isNewSession(data) {
+    if (!this.store.currentSession) return true;
+    
+    const currentSession = this.getSession(this.store.currentSession);
+    if (!currentSession) return true;
+    
+    // Check for timestamp reset pattern
+    // If new data has timestamps much lower than our stored latest timestamps
+    const latestStoredTime = this.getLatestTimestamp(currentSession);
+    const earliestNewTime = this.findLowestTimestamp(data);
+    
+    // If new data starts with timestamps at least 10s less than our latest data
+    // it's probably a new session (device restarted)
+    return earliestNewTime < latestStoredTime - 10000;
+  }
+  
+  getLatestTimestamp(session) {
+    let latest = 0;
+    Object.keys(session.data).forEach(sensorKey => {
+      if (session.data[sensorKey].latestTimestamp > latest) {
+        latest = session.data[sensorKey].latestTimestamp;
+      }
+    });
+    return latest;
+  }
+  
+  getSession(sessionId) {
+    return this.store.sessions.find(s => s.id === sessionId);
+  }
+  
+  getCurrentSession() {
+    if (!this.store.currentSession) return null;
+    return this.getSession(this.store.currentSession);
+  }
+  
+  addData(data) {
+    if (this.isNewSession(data)) {
+      return this.createNewSession(data);
+    }
+    
+    const session = this.getSession(this.store.currentSession);
+    
+    // Add new data points to the session
+    Object.keys(data.sensors).forEach(sensorKey => {
+      const sensorData = data.sensors[sensorKey];
+      
+      // Initialize if needed
+      if (!session.data[sensorKey]) {
+        session.data[sensorKey] = { history: [], latestTimestamp: 0 };
+      }
+      
+      // Add history data
+      if (sensorData.historyData && sensorData.historyData.length > 0) {
+        // Filter for data points newer than what we have
+        const newPoints = sensorData.historyData.filter(point => 
+          point.timestamp > session.data[sensorKey].latestTimestamp
+        );
+        
+        if (newPoints.length > 0) {
+          session.data[sensorKey].history.push(...newPoints);
+          
+          // Update latest timestamp
+          const latestPoint = newPoints.reduce((latest, point) => 
+            point.timestamp > latest ? point.timestamp : latest, 
+            session.data[sensorKey].latestTimestamp
+          );
+          
+          session.data[sensorKey].latestTimestamp = latestPoint;
+        }
+      }
+    });
+    
+    this.saveToLocalStorage();
+    return session;
+  }
+  
+  getTimeAlignedData(sessionId = null) {
+    const session = sessionId ? 
+      this.getSession(sessionId) : 
+      this.getSession(this.store.currentSession);
+    
+    if (!session) return null;
+    
+    // Deep clone to avoid modifying the original data
+    const result = JSON.parse(JSON.stringify(session));
+    
+    // Calculate real-world timestamps for each data point
+    const sessionStartTime = new Date(session.startRealTime).getTime();
+    const deviceBootTime = session.deviceBootTime;
+    
+    // Transform timestamps
+    Object.keys(result.data).forEach(sensorKey => {
+      if (!result.data[sensorKey] || !result.data[sensorKey].history) return;
+      
+      result.data[sensorKey].history = result.data[sensorKey].history.map(point => {
+        // Only transform if point has a valid timestamp
+        if (point.timestamp !== null) {
+          const offsetFromBoot = point.timestamp - deviceBootTime;
+          const realTime = sessionStartTime + offsetFromBoot;
+          
+          // Create a new point with real timestamp
+          return {
+            ...point,
+            realTimestamp: new Date(realTime).toISOString(),
+            originalTimestamp: point.timestamp
+          };
+        }
+        return point;
+      });
+    });
+    
+    return result;
+  }
+  
+  // For debugging
+  clearAllData() {
+    localStorage.removeItem('subwaySensorData');
+    this.store = this.createInitialStore();
+    return this.store;
+  }
+  
+  // Get session list
+  getSessions() {
+    return this.store.sessions.map(session => ({
+      id: session.id,
+      startTime: session.startRealTime,
+      isCurrent: session.id === this.store.currentSession
+    }));
+  }
+  
+  // Get data stats for all sessions
+  getDataStats() {
+    return {
+      sessionCount: this.store.sessions.length,
+      currentSession: this.store.currentSession,
+      totalDataPoints: this.store.sessions.reduce((total, session) => {
+        let sessionTotal = 0;
+        Object.keys(session.data).forEach(sensorKey => {
+          sessionTotal += session.data[sensorKey].history?.length || 0;
+        });
+        return total + sessionTotal;
+      }, 0)
+    };
+  }
+}
+
 // DataSync component to handle data fetching separate from rendering
 const DataSync = ({ children }) => {
   const [sensors, setSensors] = React.useState([]);
@@ -254,6 +466,9 @@ const DataSync = ({ children }) => {
   const [autoRefresh, setAutoRefresh] = React.useState(false);
   const refreshIntervalRef = React.useRef(null);
   const [lastUpdated, setLastUpdated] = React.useState(new Date());
+  
+  // Initialize data store
+  const dataStore = React.useRef(new SensorDataStore());
 
   // Fetch available sensors
   const fetchSensors = async () => {
@@ -339,6 +554,161 @@ const DataSync = ({ children }) => {
     }
   };
 
+  // Store data in localStorage
+  const storeCurrentData = React.useCallback(() => {
+    // Only store if we have data
+    if (Object.keys(sensorData).length === 0 || Object.keys(sensorHistory).length === 0) {
+      return;
+    }
+
+    // Format data for storage
+    const dataToStore = {
+      timestamp: new Date().toISOString(),
+      sensors: {}
+    };
+    
+    sensors.forEach(sensor => {
+      const endpoint = sensor.endpoint;
+      dataToStore.sensors[endpoint] = {
+        name: sensor.name,
+        currentData: sensorData[endpoint] || null,
+        historyData: sensorHistory[endpoint] || []
+      };
+    });
+    
+    // Add to data store
+    dataStore.current.addData(dataToStore);
+    
+  }, [sensors, sensorData, sensorHistory]);
+  
+  // Export stored data as CSV with time alignment
+  const downloadStoredData = () => {
+    // Get time-aligned data from the current session
+    const timeAlignedData = dataStore.current.getTimeAlignedData();
+    
+    if (!timeAlignedData) {
+      console.error("No stored data available to download");
+      return;
+    }
+    
+    // Build CSV headers
+    const headers = ['realTimestamp', 'deviceTimestamp'];
+    const sensorTypes = Object.keys(timeAlignedData.data);
+    
+    // Collect all field names from all sensors
+    const fieldMap = {};
+    
+    sensorTypes.forEach(sensorType => {
+      if (!timeAlignedData.data[sensorType] || !timeAlignedData.data[sensorType].history || 
+          timeAlignedData.data[sensorType].history.length === 0) {
+        return;
+      }
+      
+      // Get field names from the first data point
+      const sample = timeAlignedData.data[sensorType].history[0];
+      
+      Object.keys(sample).forEach(key => {
+        // Skip timestamp fields
+        if (key === 'timestamp' || key === 'realTimestamp' || key === 'originalTimestamp') return;
+        
+        if (typeof sample[key] === 'object' && sample[key] !== null) {
+          // Handle nested objects like accel and gyro
+          Object.keys(sample[key]).forEach(subKey => {
+            headers.push(`${sensorType}:${key}.${subKey}`);
+            fieldMap[`${sensorType}.${key}.${subKey}`] = { sensorType, field: key, subField: subKey };
+          });
+        } else {
+          // Handle flat fields
+          headers.push(`${sensorType}:${key}`);
+          fieldMap[`${sensorType}.${key}`] = { sensorType, field: key };
+        }
+      });
+    });
+    
+    // Start CSV string with headers
+    let csv = headers.join(',') + '\n';
+    
+    // Combine data from all sensors by timestamp
+    const allDataPoints = [];
+    
+    sensorTypes.forEach(sensorType => {
+      if (!timeAlignedData.data[sensorType] || !timeAlignedData.data[sensorType].history) return;
+      
+      timeAlignedData.data[sensorType].history.forEach(point => {
+        if (!point.realTimestamp) return;
+        
+        allDataPoints.push({
+          sensorType,
+          realTimestamp: point.realTimestamp,
+          deviceTimestamp: point.originalTimestamp || point.timestamp,
+          data: point
+        });
+      });
+    });
+    
+    // Sort all data points by realTimestamp
+    allDataPoints.sort((a, b) => {
+      return new Date(a.realTimestamp) - new Date(b.realTimestamp);
+    });
+    
+    // Group data points by realTimestamp
+    const rowsByTimestamp = {};
+    
+    allDataPoints.forEach(point => {
+      const { realTimestamp, deviceTimestamp, sensorType, data } = point;
+      
+      if (!rowsByTimestamp[realTimestamp]) {
+        // Initialize a new row with empty values
+        const row = new Array(headers.length).fill('');
+        row[0] = realTimestamp;
+        row[1] = deviceTimestamp;
+        rowsByTimestamp[realTimestamp] = row;
+      }
+      
+      // Add data values to the row
+      Object.keys(data).forEach(key => {
+        // Skip timestamp fields
+        if (key === 'timestamp' || key === 'realTimestamp' || key === 'originalTimestamp') return;
+        
+        if (typeof data[key] === 'object' && data[key] !== null) {
+          // Handle nested objects
+          Object.keys(data[key]).forEach(subKey => {
+            const headerIndex = headers.indexOf(`${sensorType}:${key}.${subKey}`);
+            if (headerIndex > 0) {
+              rowsByTimestamp[realTimestamp][headerIndex] = data[key][subKey];
+            }
+          });
+        } else {
+          // Handle flat fields
+          const headerIndex = headers.indexOf(`${sensorType}:${key}`);
+          if (headerIndex > 0) {
+            rowsByTimestamp[realTimestamp][headerIndex] = data[key];
+          }
+        }
+      });
+    });
+    
+    // Convert rows object to array and sort by timestamp
+    const sortedRows = Object.values(rowsByTimestamp)
+      .sort((a, b) => new Date(a[0]) - new Date(b[0]));
+    
+    // Add rows to CSV
+    sortedRows.forEach(row => {
+      csv += row.join(',') + '\n';
+    });
+    
+    // Create and download the CSV file
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `subway_aligned_data_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  
   // Initial data fetch
   React.useEffect(() => {
     fetchSensors();
@@ -354,34 +724,118 @@ const DataSync = ({ children }) => {
         clearInterval(refreshIntervalRef.current);
       }
     };
-  }, []);
+  }, []); // Empty dependency array
+  
+  // Store data whenever it changes
+  React.useEffect(() => {
+    storeCurrentData();
+  }, [sensorHistory, storeCurrentData]);
+
+  // Convert sensor data to CSV format
+  const convertToCSV = (sensorData, sensorHistory) => {
+    // Define CSV headers based on available sensors
+    const headers = ['timestamp'];
+    const dataPoints = [];
+    
+    // Build header columns based on available sensors and their data structure
+    sensors.forEach(sensor => {
+      const endpoint = sensor.endpoint;
+      const history = sensorHistory[endpoint] || [];
+      
+      // Skip empty sensors
+      if (!history.length) return;
+      
+      // Use first data point to determine available fields
+      const sample = history[0] || {};
+      
+      // Add each field to headers with sensor prefix
+      Object.keys(sample).forEach(key => {
+        // Skip timestamp as we already have it
+        if (key === 'timestamp') return;
+        
+        // Handle nested objects like accel and gyro
+        if (typeof sample[key] === 'object' && sample[key] !== null) {
+          Object.keys(sample[key]).forEach(subKey => {
+            headers.push(`${endpoint}:${key}.${subKey}`);
+          });
+        } else {
+          headers.push(`${endpoint}:${key}`);
+        }
+      });
+    });
+    
+    // Start CSV with headers
+    let csv = headers.join(',') + '\n';
+    
+    // Create a map of timestamps to data rows
+    const timeMap = new Map();
+    
+    // Process each sensor's history data
+    sensors.forEach(sensor => {
+      const endpoint = sensor.endpoint;
+      const history = sensorHistory[endpoint] || [];
+      
+      history.forEach(point => {
+        const timestamp = point.timestamp;
+        
+        // Create row for this timestamp if it doesn't exist
+        if (!timeMap.has(timestamp)) {
+          // Initialize with empty values for all columns
+          const row = new Array(headers.length).fill('');
+          row[0] = timestamp; // Set timestamp
+          timeMap.set(timestamp, row);
+        }
+        
+        // Get the row for this timestamp
+        const row = timeMap.get(timestamp);
+        
+        // Populate the row with values from this data point
+        Object.keys(point).forEach(key => {
+          // Skip timestamp as it's already set
+          if (key === 'timestamp') return;
+          
+          if (typeof point[key] === 'object' && point[key] !== null) {
+            // Handle nested objects like accel and gyro
+            Object.keys(point[key]).forEach(subKey => {
+              const headerIndex = headers.indexOf(`${endpoint}:${key}.${subKey}`);
+              if (headerIndex > 0) { // Skip timestamp column (index 0)
+                row[headerIndex] = point[key][subKey];
+              }
+            });
+          } else {
+            // Handle simple values
+            const headerIndex = headers.indexOf(`${endpoint}:${key}`);
+            if (headerIndex > 0) { // Skip timestamp column (index 0)
+              row[headerIndex] = point[key];
+            }
+          }
+        });
+      });
+    });
+    
+    // Sort by timestamp and add rows to CSV
+    Array.from(timeMap.entries())
+      .sort((a, b) => a[0] - b[0]) // Sort by timestamp
+      .forEach(([_, row]) => {
+        csv += row.join(',') + '\n';
+      });
+    
+    return csv;
+  };
 
   // Create a download link for the sensor data
   const downloadSensorData = () => {
-    const dataToExport = {
-      timestamp: new Date().toISOString(),
-      sensors: {}
-    };
-    
-    // Add current readings and history for each sensor
-    sensors.forEach(sensor => {
-      const endpoint = sensor.endpoint;
-      dataToExport.sensors[endpoint] = {
-        name: sensor.name,
-        currentData: sensorData[endpoint] || null,
-        historyData: sensorHistory[endpoint] || []
-      };
-    });
+    // Generate CSV from sensor data
+    const csv = convertToCSV(sensorData, sensorHistory);
     
     // Create a file for download
-    const dataStr = JSON.stringify(dataToExport, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
+    const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     
     // Create and trigger download link
     const link = document.createElement('a');
     link.href = url;
-    link.download = `subway_sensor_data_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    link.download = `subway_sensor_data_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -397,16 +851,50 @@ const DataSync = ({ children }) => {
     refreshAllData,
     toggleAutoRefresh,
     downloadSensorData,
-    lastUpdated
+    downloadStoredData,
+    lastUpdated,
+    storageStats: dataStore.current.getDataStats(),
+    clearStorage: () => dataStore.current.clearAllData()
   });
 };
 
-const Dashboard = ({ sensors, sensorData, sensorHistory, loading, autoRefresh, refreshAllData, toggleAutoRefresh, downloadSensorData, lastUpdated }) => {
+const Dashboard = ({ 
+  sensors, 
+  sensorData, 
+  sensorHistory, 
+  loading, 
+  autoRefresh, 
+  refreshAllData, 
+  toggleAutoRefresh, 
+  downloadSensorData, 
+  downloadStoredData,
+  lastUpdated,
+  storageStats,
+  clearStorage
+}) => {
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
       <h1 style={{ textAlign: 'center', color: '#333' }}>Subway Analytics - Sensor Dashboard</h1>
+      
       <div style={{ textAlign: 'center', color: '#666', marginBottom: '20px' }}>
         Last Updated: {lastUpdated.toLocaleTimeString()}
+      </div>
+      
+      {/* Storage Stats */}
+      <div className="storage-stats" style={{ 
+        textAlign: 'center', 
+        marginBottom: '20px',
+        backgroundColor: '#f0f7ff',
+        padding: '10px',
+        borderRadius: '8px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+      }}>
+        <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>Browser Storage</div>
+        <div style={{ fontSize: '14px' }}>
+          Sessions: {storageStats.sessionCount} | 
+          Current: {storageStats.currentSession?.substring(0, 8)}... | 
+          Total Points: {storageStats.totalDataPoints}
+        </div>
       </div>
       
       {/* Global Action Buttons */}
@@ -424,12 +912,33 @@ const Dashboard = ({ sensors, sensorData, sensorHistory, loading, autoRefresh, r
         >
           {autoRefresh ? 'Stop Auto-Refresh' : 'Start Auto-Refresh'}
         </button>
-        
+      </div>
+      
+      {/* Data Export Buttons */}
+      <div className="button-container" style={{ marginBottom: '30px' }}>
         <button 
           onClick={downloadSensorData}
+          className="action-button secondary"
+        >
+          Download Current Data (CSV)
+        </button>
+        
+        <button 
+          onClick={downloadStoredData}
           className="action-button primary"
         >
-          Download All Data
+          Download Time-Aligned Data (CSV)
+        </button>
+        
+        <button 
+          onClick={() => {
+            if (window.confirm('Clear all stored data? This cannot be undone.')) {
+              clearStorage();
+            }
+          }}
+          className="action-button warning"
+        >
+          Clear Stored Data
         </button>
       </div>
       
@@ -474,7 +983,8 @@ const App = () => {
   return <DataSync>{props => <Dashboard {...props} />}</DataSync>;
 };
 
-// Wait for the chart component to be available
+// Wait for the chart component to be available before rendering
+// The CustomSensorChart component is defined on the window object by chart.js
 setTimeout(() => {
   ReactDOM.render(<App />, document.getElementById("root"));
 }, 100);

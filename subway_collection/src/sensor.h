@@ -132,10 +132,10 @@ public:
   void serializeCurrentData(JsonObject& json) override {
     json["timestamp"] = currentTimestamp;
     
-    JsonObject accel = json.createNestedObject("accel");
+    JsonObject accel = json["accel"].to<JsonObject>();
     currentAccel.toJson(accel);
     
-    JsonObject gyro = json.createNestedObject("gyro");
+    JsonObject gyro = json["gyro"].to<JsonObject>();
     currentGyro.toJson(gyro);
     
     json["temperature"] = currentTemp;
@@ -153,16 +153,16 @@ public:
       
       // Only output entries with valid timestamps
       if (timestampBuffer[idx] > 0) {
-        JsonObject entry = array.createNestedObject();
+        JsonObject entry = array.add<JsonObject>();
         
         entry["timestamp"] = timestampBuffer[idx];
         
-        JsonObject accel = entry.createNestedObject("accel");
+        JsonObject accel = entry["accel"].to<JsonObject>();
         accel["x"] = accelBuffer[idx].x;
         accel["y"] = accelBuffer[idx].y;
         accel["z"] = accelBuffer[idx].z;
         
-        JsonObject gyro = entry.createNestedObject("gyro");
+        JsonObject gyro = entry["gyro"].to<JsonObject>();
         gyro["x"] = gyroBuffer[idx].x;
         gyro["y"] = gyroBuffer[idx].y;
         gyro["z"] = gyroBuffer[idx].z;
@@ -312,7 +312,7 @@ public:
       
       // Only output entries with valid timestamps
       if (timestampBuffer[idx] > 0) {
-        JsonObject entry = array.createNestedObject();
+        JsonObject entry = array.add<JsonObject>();
         
         entry["timestamp"] = timestampBuffer[idx];
         entry["temperature"] = tempBuffer[idx];
