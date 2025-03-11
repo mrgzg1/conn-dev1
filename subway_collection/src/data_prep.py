@@ -43,13 +43,13 @@ def clean_content(content, file_type):
 # Files to process
 raw_files = ["index.html", "react_app.js", "chart.js"]
 
-with open("web_files.h", "w", encoding='utf-8') as f:
+with open("src/web_files.h", "w", encoding='utf-8') as f:
     f.write("#ifndef WEB_FILES_H\n#define WEB_FILES_H\n\n")
     f.write("#include <Arduino.h>\n")
     
     for file in raw_files:
         print(f"\nProcessing {file}...")
-        with open(f"web/{file}", "r", encoding='utf-8') as src:
+        with open(f"src/web/{file}", "r", encoding='utf-8') as src:
             content = src.read()
             
             # Process the file
