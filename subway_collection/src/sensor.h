@@ -214,12 +214,34 @@ public:
   }
   
   bool setup() override {
-    Wire.begin();
+    // Wire.begin() is already called in main.cpp, don't call it again
     
-    // Initialize BME280 sensor with default parameters
-    while (!bme.begin()) {
-      Serial.println("Could not find BME280 sensor!");
-      delay(1000);
+    // Initialize BME280 sensor with explicit I2C address (0x76 or 0x77 are common)
+    // Try both common addresses with a timeout
+    unsigned long startTime = millis();
+    bool sensorFound = false;
+    
+    // Define a 5 second timeout
+    const unsigned long TIMEOUT = 5000;
+    
+    // Try to initialize BME280 sensor
+    // Note: BME280I2C library doesn't accept address parameter in begin()
+    while (millis() - startTime < TIMEOUT && !sensorFound) {
+      Serial.println("Trying to initialize BME280...");
+      if (bme.begin()) {
+        sensorFound = true;
+        sensorInitialized = true;
+        Serial.println("BME280 initialized successfully");
+      } else {
+        Serial.println("Could not initialize BME280 sensor");
+        delay(500);
+      }
+    }
+    
+    if (!sensorFound) {
+      Serial.println("BME280 sensor not found after timeout! Continuing without environmental data.");
+      sensorInitialized = false;
+      return false;
     }
     
     // Report chip model
@@ -232,6 +254,7 @@ public:
         break;
       default:
         Serial.println("Found UNKNOWN sensor! Error!");
+        sensorInitialized = false;
         return false;
     }
     
@@ -239,32 +262,35 @@ public:
   }
   
   void update() override {
-    // Read BME280 values
-    bme.read(currentPres, currentTemp, currentHum, BME280::TempUnit_Celsius, BME280::PresUnit_Pa);
-    
-    // Log every 100th reading to avoid flooding serial
-    if (updateCount % 100 == 0) {
-      Serial.print("BME280: Temp=");
-      Serial.print(currentTemp);
-      Serial.print("°C, Humidity=");
-      Serial.print(currentHum);
-      Serial.print("%, Pressure=");
-      Serial.print(currentPres);
-      Serial.println(" Pa");
+    // Only try to read if the sensor was successfully initialized
+    if (sensorInitialized) {
+      // Read BME280 values
+      bme.read(currentPres, currentTemp, currentHum, BME280::TempUnit_Celsius, BME280::PresUnit_Pa);
+      
+      // Log every 100th reading to avoid flooding serial
+      if (updateCount % 100 == 0) {
+        Serial.print("BME280: Temp=");
+        Serial.print(currentTemp);
+        Serial.print("°C, Humidity=");
+        Serial.print(currentHum);
+        Serial.print("%, Pressure=");
+        Serial.print(currentPres);
+        Serial.println(" Pa");
+      }
+      
+      // Record timestamp and update buffer
+      currentTimestamp = millis();
+      
+      // Store in circular buffer
+      tempBuffer[bufferIndex] = currentTemp;
+      humBuffer[bufferIndex] = currentHum;
+      presBuffer[bufferIndex] = currentPres;
+      timestampBuffer[bufferIndex] = currentTimestamp;
+      
+      // Increment buffer index (circular buffer)
+      bufferIndex = (bufferIndex + 1) % bufferSize;
+      updateCount++;
     }
-    
-    // Record timestamp and update buffer
-    currentTimestamp = millis();
-    
-    // Store in circular buffer
-    tempBuffer[bufferIndex] = currentTemp;
-    humBuffer[bufferIndex] = currentHum;
-    presBuffer[bufferIndex] = currentPres;
-    timestampBuffer[bufferIndex] = currentTimestamp;
-    
-    // Increment buffer index (circular buffer)
-    bufferIndex = (bufferIndex + 1) % bufferSize;
-    updateCount++;
   }
   
   void serializeCurrentData(JsonObject& json) override {
@@ -303,6 +329,7 @@ private:
   
   // BME280 instance
   BME280I2C bme;
+  bool sensorInitialized = false;
   
   // Current readings
   float currentTemp = 0;

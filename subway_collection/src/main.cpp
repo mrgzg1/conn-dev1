@@ -59,20 +59,55 @@ void setup() {
     while(1); // Stop if sensor setup fails
   }
 
-  // Connect to WiFi
+  // Connect to WiFi with timeout
+  unsigned long wifiStartTime = millis();
+  const unsigned long WIFI_TIMEOUT = 20000; // 20 seconds timeout
+  int attemptCount = 0;
+  bool connected = false;
+  
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, pass);
+  
   while (WiFi.status() != WL_CONNECTED) {
-    Serial.print("Connecting to WiFi: ");
-    Serial.println(ssid);
-    WiFi.begin(ssid, pass);
-    delay(5000);
+    // Check if we've timed out
+    if (millis() - wifiStartTime > WIFI_TIMEOUT) {
+      Serial.println("WiFi connection timeout!");
+      
+      // Try alternative networks if available
+      if (attemptCount < WIFI_NETWORKS_COUNT) {
+        Serial.print("Trying alternative network: ");
+        Serial.println(WIFI_NETWORKS[attemptCount][0]);
+        WiFi.begin(WIFI_NETWORKS[attemptCount][0], WIFI_NETWORKS[attemptCount][1]);
+        wifiStartTime = millis(); // Reset timeout for the new attempt
+        attemptCount++;
+      } else {
+        Serial.println("Failed to connect to any WiFi network! Continuing without WiFi.");
+        break;
+      }
+    }
+    
+    // Print a dot every second while connecting
+    Serial.print(".");
+    delay(1000);
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nConnected!");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+    connected = true;
+  } else {
+    Serial.println("\nNo WiFi connection established. Operating in offline mode.");
   }
 
-  Serial.println("Connected!");
-  Serial.print("IP: ");
-  Serial.println(WiFi.localIP());
-
-  server.begin();
-  Serial.println("Server started");
+  // Only start the server if WiFi is connected
+  if (connected) {
+    server.begin();
+    Serial.println("Web server started");
+  } else {
+    Serial.println("Web server not started - no WiFi connection");
+  }
 }
 
 // Status reporting variables
@@ -83,10 +118,12 @@ void loop() {
   // Update all sensor readings
   updateSensors();
 
-  // Handle any incoming client connections
-  WiFiClient client = server.available();
-  if (client) {
-    handleClient(client);
+  // Handle any incoming client connections if WiFi is connected
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClient client = server.available();
+    if (client) {
+      handleClient(client);
+    }
   }
   
   // Periodic status report
@@ -97,12 +134,29 @@ void loop() {
     Serial.print(currentTime / 1000);
     Serial.println(" seconds");
     
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
+    // Print WiFi status
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.print("WiFi Status: Connected, IP: ");
+      Serial.println(WiFi.localIP());
+      
+      Serial.print("Signal Strength: ");
+      Serial.print(WiFi.RSSI());
+      Serial.println(" dBm");
+    } else {
+      Serial.println("WiFi Status: Disconnected, operating in offline mode");
+    }
     
-    Serial.print("Signal Strength: ");
-    Serial.print(WiFi.RSSI());
-    Serial.println(" dBm");
+    // Print sample sensor data
+    Serial.println("Sample sensor readings:");
+    Serial.print("- IMU temperature: ");
+    float temp = 0;
+    if (IMU.temperatureAvailable()) {
+      IMU.readTemperature(temp);
+      Serial.print(temp);
+      Serial.println(" °C");
+    } else {
+      Serial.println("N/A");
+    }
     
     // Memory info not available on all boards
     Serial.println("Active and monitoring...");
