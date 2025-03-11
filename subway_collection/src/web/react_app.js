@@ -1,50 +1,9 @@
 const deviceIP = location.origin;
 
-// Dashboard configuration - defines custom views for data visualization
-const DASHBOARD_CONFIG = {
-  views: [
-    {
-      id: "temperature",
-      title: "Temperature",
-      description: "Temperature readings from all sensors",
-      metrics: [
-        { sensorType: "imu", dataKey: "temperature", label: "IMU Temperature", color: "rgba(255, 99, 132, 1)" },
-        { sensorType: "bme280", dataKey: "temperature", label: "BME280 Temperature", color: "rgba(54, 162, 235, 1)" }
-      ]
-    },
-    {
-      id: "humidity",
-      title: "Humidity",
-      description: "Humidity levels from environmental sensor",
-      metrics: [
-        { sensorType: "bme280", dataKey: "humidity", label: "Humidity", color: "rgba(75, 192, 192, 1)" }
-      ]
-    },
-    {
-      id: "pressure",
-      title: "Pressure",
-      description: "Atmospheric pressure readings",
-      metrics: [
-        { sensorType: "bme280", dataKey: "pressure", label: "Pressure (hPa)", 
-          color: "rgba(153, 102, 255, 1)", 
-          transform: (value) => value / 100 // Convert Pa to hPa
-        }
-      ]
-    },
-    {
-      id: "acceleration",
-      title: "IMU Acceleration",
-      description: "Accelerometer readings from IMU sensor",
-      metrics: [
-        { sensorType: "imu", dataKey: "accel.x", label: "X-axis", color: "rgba(255, 99, 132, 1)" },
-        { sensorType: "imu", dataKey: "accel.y", label: "Y-axis", color: "rgba(54, 162, 235, 1)" },
-        { sensorType: "imu", dataKey: "accel.z", label: "Z-axis", color: "rgba(75, 192, 192, 1)" }
-      ]
-    }
-  ]
-};
+// Get the dashboard configuration from chart.js
+const DASHBOARD_CONFIG = window.DASHBOARD_CONFIG;
 
-// Helper function to get nested object values using dot notation (also defined in chart.js)
+// Helper function to get nested object values using dot notation (defined in chart.js)
 const getNestedValue = (obj, path) => {
   if (!obj) return null;
   return path.split('.').reduce((prev, curr) => {
@@ -189,61 +148,8 @@ const SensorStatistics = ({ sensorType, history }) => {
   return renderSensorStatistics();
 };
 
-// Custom View Panel Component
-const CustomViewPanel = ({ view, sensorData, sensorHistory, refreshAllData, loading }) => {
-  return (
-    <div className="sensor-panel">
-      <h2 style={{ margin: '0 0 15px 0', color: '#444', textAlign: 'center' }}>{view.title}</h2>
-      <p style={{ margin: '0 0 20px 0', color: '#666', textAlign: 'center' }}>{view.description}</p>
-      
-      {/* Custom Chart */}
-      <div className="chart-container">
-        <window.CustomSensorChart 
-          view={view}
-          sensorData={sensorData}
-          sensorHistory={sensorHistory}
-        />
-      </div>
-
-      {/* Current Values Display */}
-      <div className="current-values-container">
-        <h3 style={{ margin: '10px 0', color: '#555' }}>Current Values</h3>
-        <div className="current-values-grid">
-          {view.metrics.map((metric, index) => {
-            const currentData = sensorData[metric.sensorType];
-            let value = currentData ? getNestedValue(currentData, metric.dataKey) : null;
-            
-            if (value !== null && metric.transform) {
-              value = metric.transform(value);
-            }
-            
-            return (
-              <div key={index} className="current-value-item">
-                <div className="metric-label" style={{ color: metric.color }}>
-                  {metric.label}:
-                </div>
-                <div className="metric-value">
-                  {value !== null ? value.toFixed(2) : "N/A"}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      
-      {/* Refresh Button */}
-      <div className="button-container">
-        <button 
-          onClick={refreshAllData}
-          disabled={Object.values(loading).some(val => val)}
-          className="action-button secondary"
-        >
-          {Object.values(loading).some(val => val) ? 'Loading...' : 'Refresh Data'}
-        </button>
-      </div>
-    </div>
-  );
-};
+// CustomViewPanel is now defined in chart.js
+const CustomViewPanel = window.CustomViewPanel;
 
 // Sensor data store for persistent browser storage
 class SensorDataStore {
@@ -591,111 +497,13 @@ const DataSync = ({ children }) => {
       return;
     }
     
-    // Build CSV headers
-    const headers = ['realTimestamp', 'deviceTimestamp'];
-    const sensorTypes = Object.keys(timeAlignedData.data);
+    // Use the chart.js helper function to generate CSV
+    const csv = window.generateTimeAlignedCSV(timeAlignedData);
     
-    // Collect all field names from all sensors
-    const fieldMap = {};
-    
-    sensorTypes.forEach(sensorType => {
-      if (!timeAlignedData.data[sensorType] || !timeAlignedData.data[sensorType].history || 
-          timeAlignedData.data[sensorType].history.length === 0) {
-        return;
-      }
-      
-      // Get field names from the first data point
-      const sample = timeAlignedData.data[sensorType].history[0];
-      
-      Object.keys(sample).forEach(key => {
-        // Skip timestamp fields
-        if (key === 'timestamp' || key === 'realTimestamp' || key === 'originalTimestamp') return;
-        
-        if (typeof sample[key] === 'object' && sample[key] !== null) {
-          // Handle nested objects like accel and gyro
-          Object.keys(sample[key]).forEach(subKey => {
-            headers.push(`${sensorType}:${key}.${subKey}`);
-            fieldMap[`${sensorType}.${key}.${subKey}`] = { sensorType, field: key, subField: subKey };
-          });
-        } else {
-          // Handle flat fields
-          headers.push(`${sensorType}:${key}`);
-          fieldMap[`${sensorType}.${key}`] = { sensorType, field: key };
-        }
-      });
-    });
-    
-    // Start CSV string with headers
-    let csv = headers.join(',') + '\n';
-    
-    // Combine data from all sensors by timestamp
-    const allDataPoints = [];
-    
-    sensorTypes.forEach(sensorType => {
-      if (!timeAlignedData.data[sensorType] || !timeAlignedData.data[sensorType].history) return;
-      
-      timeAlignedData.data[sensorType].history.forEach(point => {
-        if (!point.realTimestamp) return;
-        
-        allDataPoints.push({
-          sensorType,
-          realTimestamp: point.realTimestamp,
-          deviceTimestamp: point.originalTimestamp || point.timestamp,
-          data: point
-        });
-      });
-    });
-    
-    // Sort all data points by realTimestamp
-    allDataPoints.sort((a, b) => {
-      return new Date(a.realTimestamp) - new Date(b.realTimestamp);
-    });
-    
-    // Group data points by realTimestamp
-    const rowsByTimestamp = {};
-    
-    allDataPoints.forEach(point => {
-      const { realTimestamp, deviceTimestamp, sensorType, data } = point;
-      
-      if (!rowsByTimestamp[realTimestamp]) {
-        // Initialize a new row with empty values
-        const row = new Array(headers.length).fill('');
-        row[0] = realTimestamp;
-        row[1] = deviceTimestamp;
-        rowsByTimestamp[realTimestamp] = row;
-      }
-      
-      // Add data values to the row
-      Object.keys(data).forEach(key => {
-        // Skip timestamp fields
-        if (key === 'timestamp' || key === 'realTimestamp' || key === 'originalTimestamp') return;
-        
-        if (typeof data[key] === 'object' && data[key] !== null) {
-          // Handle nested objects
-          Object.keys(data[key]).forEach(subKey => {
-            const headerIndex = headers.indexOf(`${sensorType}:${key}.${subKey}`);
-            if (headerIndex > 0) {
-              rowsByTimestamp[realTimestamp][headerIndex] = data[key][subKey];
-            }
-          });
-        } else {
-          // Handle flat fields
-          const headerIndex = headers.indexOf(`${sensorType}:${key}`);
-          if (headerIndex > 0) {
-            rowsByTimestamp[realTimestamp][headerIndex] = data[key];
-          }
-        }
-      });
-    });
-    
-    // Convert rows object to array and sort by timestamp
-    const sortedRows = Object.values(rowsByTimestamp)
-      .sort((a, b) => new Date(a[0]) - new Date(b[0]));
-    
-    // Add rows to CSV
-    sortedRows.forEach(row => {
-      csv += row.join(',') + '\n';
-    });
+    if (!csv) {
+      console.error("Failed to generate CSV");
+      return;
+    }
     
     // Create and download the CSV file
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -719,6 +527,7 @@ const DataSync = ({ children }) => {
     }, 2000);
     setAutoRefresh(true);
     
+    // Cleanup function to clear interval when component unmounts
     return () => {
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
@@ -731,102 +540,10 @@ const DataSync = ({ children }) => {
     storeCurrentData();
   }, [sensorHistory, storeCurrentData]);
 
-  // Convert sensor data to CSV format
-  const convertToCSV = (sensorData, sensorHistory) => {
-    // Define CSV headers based on available sensors
-    const headers = ['timestamp'];
-    const dataPoints = [];
-    
-    // Build header columns based on available sensors and their data structure
-    sensors.forEach(sensor => {
-      const endpoint = sensor.endpoint;
-      const history = sensorHistory[endpoint] || [];
-      
-      // Skip empty sensors
-      if (!history.length) return;
-      
-      // Use first data point to determine available fields
-      const sample = history[0] || {};
-      
-      // Add each field to headers with sensor prefix
-      Object.keys(sample).forEach(key => {
-        // Skip timestamp as we already have it
-        if (key === 'timestamp') return;
-        
-        // Handle nested objects like accel and gyro
-        if (typeof sample[key] === 'object' && sample[key] !== null) {
-          Object.keys(sample[key]).forEach(subKey => {
-            headers.push(`${endpoint}:${key}.${subKey}`);
-          });
-        } else {
-          headers.push(`${endpoint}:${key}`);
-        }
-      });
-    });
-    
-    // Start CSV with headers
-    let csv = headers.join(',') + '\n';
-    
-    // Create a map of timestamps to data rows
-    const timeMap = new Map();
-    
-    // Process each sensor's history data
-    sensors.forEach(sensor => {
-      const endpoint = sensor.endpoint;
-      const history = sensorHistory[endpoint] || [];
-      
-      history.forEach(point => {
-        const timestamp = point.timestamp;
-        
-        // Create row for this timestamp if it doesn't exist
-        if (!timeMap.has(timestamp)) {
-          // Initialize with empty values for all columns
-          const row = new Array(headers.length).fill('');
-          row[0] = timestamp; // Set timestamp
-          timeMap.set(timestamp, row);
-        }
-        
-        // Get the row for this timestamp
-        const row = timeMap.get(timestamp);
-        
-        // Populate the row with values from this data point
-        Object.keys(point).forEach(key => {
-          // Skip timestamp as it's already set
-          if (key === 'timestamp') return;
-          
-          if (typeof point[key] === 'object' && point[key] !== null) {
-            // Handle nested objects like accel and gyro
-            Object.keys(point[key]).forEach(subKey => {
-              const headerIndex = headers.indexOf(`${endpoint}:${key}.${subKey}`);
-              if (headerIndex > 0) { // Skip timestamp column (index 0)
-                row[headerIndex] = point[key][subKey];
-              }
-            });
-          } else {
-            // Handle simple values
-            const headerIndex = headers.indexOf(`${endpoint}:${key}`);
-            if (headerIndex > 0) { // Skip timestamp column (index 0)
-              row[headerIndex] = point[key];
-            }
-          }
-        });
-      });
-    });
-    
-    // Sort by timestamp and add rows to CSV
-    Array.from(timeMap.entries())
-      .sort((a, b) => a[0] - b[0]) // Sort by timestamp
-      .forEach(([_, row]) => {
-        csv += row.join(',') + '\n';
-      });
-    
-    return csv;
-  };
-
   // Create a download link for the sensor data
   const downloadSensorData = () => {
-    // Generate CSV from sensor data
-    const csv = convertToCSV(sensorData, sensorHistory);
+    // Generate CSV from sensor data using the helper function from chart.js
+    const csv = window.convertToCSV(sensors, sensorData, sensorHistory);
     
     // Create a file for download
     const blob = new Blob([csv], { type: 'text/csv' });
