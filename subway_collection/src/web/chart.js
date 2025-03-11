@@ -1,13 +1,65 @@
 // Dashboard configuration - defines custom views for data visualization
 window.DASHBOARD_CONFIG = {
+  // Sensor-level data validation - defines valid ranges and filtering rules
+  validation: {
+    sensors: {
+      "imu": {
+        fields: {
+          "temperature": { min: 0, max: 100 }, // Normal temperature range in °C
+          "accel.x": { min: -5, max: 5 },      // Normal acceleration range in g
+          "accel.y": { min: -5, max: 5 },
+          "accel.z": { min: -5, max: 5 },
+          "gyro.x": { min: -200, max: 200 },   // Normal gyro range in dps
+          "gyro.y": { min: -200, max: 200 },
+          "gyro.z": { min: -200, max: 200 }
+        }
+      },
+      "bme280": {
+        fields: {
+          "temperature": { min: -40, max: 85 },  // BME280 spec range
+          "humidity": { min: 0, max: 100 },      // Humidity percentage
+          "pressure": { min: 30000, max: 110000 } // Normal atmospheric pressure range in Pa
+        }
+      }
+    },
+    // Default filter function for outliers - can be overridden per metric
+    isValidValue: function(value, validationRule) {
+      // Check if value is null, undefined, NaN, or outside valid range
+      if (value === null || value === undefined || isNaN(value)) {
+        return false;
+      }
+      if (validationRule) {
+        if (validationRule.min !== undefined && value < validationRule.min) {
+          return false;
+        }
+        if (validationRule.max !== undefined && value > validationRule.max) {
+          return false;
+        }
+      }
+      return true;
+    }
+  },
+  
   views: [
     {
       id: "temperature",
       title: "Temperature",
       description: "Temperature readings from all sensors",
       metrics: [
-        { sensorType: "imu", dataKey: "temperature", label: "IMU Temperature", color: "rgba(255, 99, 132, 1)" },
-        { sensorType: "bme280", dataKey: "temperature", label: "BME280 Temperature", color: "rgba(54, 162, 235, 1)" }
+        { 
+          sensorType: "imu", 
+          dataKey: "temperature", 
+          label: "IMU Temperature", 
+          color: "rgba(255, 99, 132, 1)",
+          // Custom validation can override the default sensor validation
+          validation: { min: 0, max: 50 }
+        },
+        { 
+          sensorType: "bme280", 
+          dataKey: "temperature", 
+          label: "BME280 Temperature", 
+          color: "rgba(54, 162, 235, 1)"
+        }
       ]
     },
     {
@@ -15,7 +67,12 @@ window.DASHBOARD_CONFIG = {
       title: "Humidity",
       description: "Humidity levels from environmental sensor",
       metrics: [
-        { sensorType: "bme280", dataKey: "humidity", label: "Humidity", color: "rgba(75, 192, 192, 1)" }
+        { 
+          sensorType: "bme280", 
+          dataKey: "humidity", 
+          label: "Humidity", 
+          color: "rgba(75, 192, 192, 1)"
+        }
       ]
     },
     {
@@ -23,9 +80,13 @@ window.DASHBOARD_CONFIG = {
       title: "Pressure",
       description: "Atmospheric pressure readings",
       metrics: [
-        { sensorType: "bme280", dataKey: "pressure", label: "Pressure (hPa)", 
+        { 
+          sensorType: "bme280", 
+          dataKey: "pressure", 
+          label: "Pressure (hPa)", 
           color: "rgba(153, 102, 255, 1)", 
-          transform: (value) => value / 100 // Convert Pa to hPa
+          transform: (value) => value / 100, // Convert Pa to hPa
+          validation: { min: 300, max: 1100 } // Valid range after transformation to hPa
         }
       ]
     },
@@ -34,9 +95,24 @@ window.DASHBOARD_CONFIG = {
       title: "IMU Acceleration",
       description: "Accelerometer readings from IMU sensor",
       metrics: [
-        { sensorType: "imu", dataKey: "accel.x", label: "X-axis", color: "rgba(255, 99, 132, 1)" },
-        { sensorType: "imu", dataKey: "accel.y", label: "Y-axis", color: "rgba(54, 162, 235, 1)" },
-        { sensorType: "imu", dataKey: "accel.z", label: "Z-axis", color: "rgba(75, 192, 192, 1)" }
+        { 
+          sensorType: "imu", 
+          dataKey: "accel.x", 
+          label: "X-axis", 
+          color: "rgba(255, 99, 132, 1)"
+        },
+        { 
+          sensorType: "imu", 
+          dataKey: "accel.y", 
+          label: "Y-axis", 
+          color: "rgba(54, 162, 235, 1)"
+        },
+        { 
+          sensorType: "imu", 
+          dataKey: "accel.z", 
+          label: "Z-axis", 
+          color: "rgba(75, 192, 192, 1)"
+        }
       ]
     }
   ]
@@ -48,6 +124,25 @@ const getNestedValue = (obj, path) => {
   return path.split('.').reduce((prev, curr) => {
     return prev ? prev[curr] : null;
   }, obj);
+};
+
+// Validation helper function - also used by CustomSensorChart
+window.validateDataPoint = (metric, value) => {
+  // Get validation config - prefer metric-specific validation over sensor default
+  const config = window.DASHBOARD_CONFIG.validation;
+  const sensorValidation = config.sensors[metric.sensorType]?.fields || {};
+  
+  // Get validation rule - prefer metric-specific over sensor default
+  let dataKey = metric.dataKey;
+  const validationRule = metric.validation || 
+                        sensorValidation[dataKey] || 
+                        {};
+  
+  // Transform value if needed before validation
+  const transformedValue = metric.transform ? metric.transform(value) : value;
+  
+  // Validate using the isValidValue function
+  return config.isValidValue(transformedValue, validationRule) ? transformedValue : null;
 };
 
 // Custom View Panel Component
@@ -72,11 +167,10 @@ window.CustomViewPanel = ({ view, sensorData, sensorHistory, refreshAllData, loa
         <div className="current-values-grid">
           {view.metrics.map((metric, index) => {
             const currentData = sensorData[metric.sensorType];
-            let value = currentData ? getNestedValue(currentData, metric.dataKey) : null;
+            let rawValue = currentData ? getNestedValue(currentData, metric.dataKey) : null;
             
-            if (value !== null && metric.transform) {
-              value = metric.transform(value);
-            }
+            // Validate value using our validation rules
+            const validValue = window.validateDataPoint(metric, rawValue);
             
             return (
               <div key={index} className="current-value-item">
@@ -84,7 +178,7 @@ window.CustomViewPanel = ({ view, sensorData, sensorHistory, refreshAllData, loa
                   {metric.label}:
                 </div>
                 <div className="metric-value">
-                  {value !== null ? value.toFixed(2) : "N/A"}
+                  {validValue !== null ? validValue.toFixed(2) : "N/A"}
                 </div>
               </div>
             );
@@ -141,9 +235,24 @@ window.CustomSensorChart = ({ view, sensorData, sensorHistory, title }) => {
     // Create datasets for each metric
     const datasets = view.metrics.map(metric => {
       const history = sensorHistory[metric.sensorType] || [];
-      const data = history.map(entry => {
-        let value = getNestedValue(entry, metric.dataKey);
-        return metric.transform ? metric.transform(value) : value;
+      
+      // Filter and validate data points
+      const validData = history.map((entry, index) => {
+        const rawValue = getNestedValue(entry, metric.dataKey);
+        const validValue = window.validateDataPoint(metric, rawValue);
+        
+        // Return object with timestamp and value for filtering
+        return {
+          timestamp: entry.timestamp,
+          value: validValue,
+          index: index
+        };
+      }).filter(item => item.value !== null);
+      
+      // Extract just the validated values in the original order
+      const data = new Array(history.length).fill(null);
+      validData.forEach(item => {
+        data[item.index] = item.value;
       });
       
       return {
@@ -153,7 +262,8 @@ window.CustomSensorChart = ({ view, sensorData, sensorHistory, title }) => {
         backgroundColor: metric.color.replace('1)', '0.1)'),
         borderWidth: 2,
         fill: false,
-        tension: 0.2 // Adds smoother curves
+        tension: 0.2, // Adds smoother curves
+        spanGaps: true // Connect lines across null/invalid values
       };
     });
     
@@ -503,7 +613,7 @@ window.IMUHistoryChart = ({ history }) => {
 
 // Helper functions for data export and processing
 
-// Generate time-aligned CSV data
+// Generate time-aligned CSV data with validation
 window.generateTimeAlignedCSV = (timeAlignedData) => {
   if (!timeAlignedData) {
     console.error("No time-aligned data available to export");
@@ -514,8 +624,9 @@ window.generateTimeAlignedCSV = (timeAlignedData) => {
   const headers = ['realTimestamp', 'deviceTimestamp'];
   const sensorTypes = Object.keys(timeAlignedData.data);
   
-  // Collect all field names from all sensors
+  // Collect all field names from all sensors and create metric configs for validation
   const fieldMap = {};
+  const metricConfigs = {}; // Map of headerName -> metric config for validation
   
   sensorTypes.forEach(sensorType => {
     if (!timeAlignedData.data[sensorType] || !timeAlignedData.data[sensorType].history || 
@@ -533,13 +644,51 @@ window.generateTimeAlignedCSV = (timeAlignedData) => {
       if (typeof sample[key] === 'object' && sample[key] !== null) {
         // Handle nested objects like accel and gyro
         Object.keys(sample[key]).forEach(subKey => {
-          headers.push(`${sensorType}:${key}.${subKey}`);
+          const headerName = `${sensorType}:${key}.${subKey}`;
+          headers.push(headerName);
           fieldMap[`${sensorType}.${key}.${subKey}`] = { sensorType, field: key, subField: subKey };
+          
+          // Create metric config for validation - similar to dashboard metrics
+          metricConfigs[headerName] = {
+            sensorType: sensorType,
+            dataKey: `${key}.${subKey}` // Use dot notation for nested fields
+          };
+          
+          // Check if this field has a validation in the dashboard config
+          const dashboardViews = window.DASHBOARD_CONFIG.views;
+          dashboardViews.forEach(view => {
+            view.metrics.forEach(metric => {
+              if (metric.sensorType === sensorType && metric.dataKey === `${key}.${subKey}`) {
+                // Copy transform and validation from dashboard config
+                if (metric.transform) metricConfigs[headerName].transform = metric.transform;
+                if (metric.validation) metricConfigs[headerName].validation = metric.validation;
+              }
+            });
+          });
         });
       } else {
         // Handle flat fields
-        headers.push(`${sensorType}:${key}`);
+        const headerName = `${sensorType}:${key}`;
+        headers.push(headerName);
         fieldMap[`${sensorType}.${key}`] = { sensorType, field: key };
+        
+        // Create metric config for validation
+        metricConfigs[headerName] = {
+          sensorType: sensorType,
+          dataKey: key
+        };
+        
+        // Check if this field has a validation in the dashboard config
+        const dashboardViews = window.DASHBOARD_CONFIG.views;
+        dashboardViews.forEach(view => {
+          view.metrics.forEach(metric => {
+            if (metric.sensorType === sensorType && metric.dataKey === key) {
+              // Copy transform and validation from dashboard config
+              if (metric.transform) metricConfigs[headerName].transform = metric.transform;
+              if (metric.validation) metricConfigs[headerName].validation = metric.validation;
+            }
+          });
+        });
       }
     });
   });
@@ -592,16 +741,38 @@ window.generateTimeAlignedCSV = (timeAlignedData) => {
       if (typeof data[key] === 'object' && data[key] !== null) {
         // Handle nested objects
         Object.keys(data[key]).forEach(subKey => {
-          const headerIndex = headers.indexOf(`${sensorType}:${key}.${subKey}`);
+          const headerName = `${sensorType}:${key}.${subKey}`;
+          const headerIndex = headers.indexOf(headerName);
+          
           if (headerIndex > 0) {
-            rowsByTimestamp[realTimestamp][headerIndex] = data[key][subKey];
+            const rawValue = data[key][subKey];
+            
+            // Validate the value if we have a metric config for it
+            if (metricConfigs[headerName]) {
+              const metric = metricConfigs[headerName];
+              const validValue = window.validateDataPoint(metric, rawValue);
+              rowsByTimestamp[realTimestamp][headerIndex] = validValue !== null ? validValue : '';
+            } else {
+              rowsByTimestamp[realTimestamp][headerIndex] = rawValue;
+            }
           }
         });
       } else {
         // Handle flat fields
-        const headerIndex = headers.indexOf(`${sensorType}:${key}`);
+        const headerName = `${sensorType}:${key}`;
+        const headerIndex = headers.indexOf(headerName);
+        
         if (headerIndex > 0) {
-          rowsByTimestamp[realTimestamp][headerIndex] = data[key];
+          const rawValue = data[key];
+          
+          // Validate the value if we have a metric config for it
+          if (metricConfigs[headerName]) {
+            const metric = metricConfigs[headerName];
+            const validValue = window.validateDataPoint(metric, rawValue);
+            rowsByTimestamp[realTimestamp][headerIndex] = validValue !== null ? validValue : '';
+          } else {
+            rowsByTimestamp[realTimestamp][headerIndex] = rawValue;
+          }
         }
       }
     });
@@ -619,10 +790,11 @@ window.generateTimeAlignedCSV = (timeAlignedData) => {
   return csv;
 };
 
-// Generate regular CSV data
+// Generate regular CSV data with validation
 window.convertToCSV = (sensors, sensorData, sensorHistory) => {
   // Define CSV headers based on available sensors
   const headers = ['timestamp'];
+  const metricConfigs = {}; // For data validation
   
   // Build header columns based on available sensors and their data structure
   sensors.forEach(sensor => {
@@ -643,10 +815,46 @@ window.convertToCSV = (sensors, sensorData, sensorHistory) => {
       // Handle nested objects like accel and gyro
       if (typeof sample[key] === 'object' && sample[key] !== null) {
         Object.keys(sample[key]).forEach(subKey => {
-          headers.push(`${endpoint}:${key}.${subKey}`);
+          const headerName = `${endpoint}:${key}.${subKey}`;
+          headers.push(headerName);
+          
+          // Create metric config for validation
+          metricConfigs[headerName] = {
+            sensorType: endpoint,
+            dataKey: `${key}.${subKey}`
+          };
+          
+          // Check for validation config in dashboard
+          const dashboardViews = window.DASHBOARD_CONFIG.views;
+          dashboardViews.forEach(view => {
+            view.metrics.forEach(metric => {
+              if (metric.sensorType === endpoint && metric.dataKey === `${key}.${subKey}`) {
+                if (metric.transform) metricConfigs[headerName].transform = metric.transform;
+                if (metric.validation) metricConfigs[headerName].validation = metric.validation;
+              }
+            });
+          });
         });
       } else {
-        headers.push(`${endpoint}:${key}`);
+        const headerName = `${endpoint}:${key}`;
+        headers.push(headerName);
+        
+        // Create metric config for validation
+        metricConfigs[headerName] = {
+          sensorType: endpoint,
+          dataKey: key
+        };
+        
+        // Check for validation config in dashboard
+        const dashboardViews = window.DASHBOARD_CONFIG.views;
+        dashboardViews.forEach(view => {
+          view.metrics.forEach(metric => {
+            if (metric.sensorType === endpoint && metric.dataKey === key) {
+              if (metric.transform) metricConfigs[headerName].transform = metric.transform;
+              if (metric.validation) metricConfigs[headerName].validation = metric.validation;
+            }
+          });
+        });
       }
     });
   });
@@ -684,16 +892,36 @@ window.convertToCSV = (sensors, sensorData, sensorHistory) => {
         if (typeof point[key] === 'object' && point[key] !== null) {
           // Handle nested objects like accel and gyro
           Object.keys(point[key]).forEach(subKey => {
-            const headerIndex = headers.indexOf(`${endpoint}:${key}.${subKey}`);
+            const headerName = `${endpoint}:${key}.${subKey}`;
+            const headerIndex = headers.indexOf(headerName);
+            
             if (headerIndex > 0) { // Skip timestamp column (index 0)
-              row[headerIndex] = point[key][subKey];
+              const rawValue = point[key][subKey];
+              
+              // Apply validation if we have a metric config
+              if (metricConfigs[headerName]) {
+                const validValue = window.validateDataPoint(metricConfigs[headerName], rawValue);
+                row[headerIndex] = validValue !== null ? validValue : '';
+              } else {
+                row[headerIndex] = rawValue;
+              }
             }
           });
         } else {
           // Handle simple values
-          const headerIndex = headers.indexOf(`${endpoint}:${key}`);
+          const headerName = `${endpoint}:${key}`;
+          const headerIndex = headers.indexOf(headerName);
+          
           if (headerIndex > 0) { // Skip timestamp column (index 0)
-            row[headerIndex] = point[key];
+            const rawValue = point[key];
+            
+            // Apply validation if we have a metric config
+            if (metricConfigs[headerName]) {
+              const validValue = window.validateDataPoint(metricConfigs[headerName], rawValue);
+              row[headerIndex] = validValue !== null ? validValue : '';
+            } else {
+              row[headerIndex] = rawValue;
+            }
           }
         }
       });
