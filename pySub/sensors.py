@@ -3,6 +3,13 @@ import time
 import json
 import random
 
+# Import hardware configuration
+from hardware_config import (
+    I2C_BUS, I2C_SCL_PIN, I2C_SDA_PIN, I2C_FREQ,
+    BME280_I2C_ADDR, LSM6DSOX_I2C_ADDR,
+    ADC0_PIN, ADC1_PIN, ADC2_PIN
+)
+
 # Import sensor drivers
 try:
     from bme280 import BME280
@@ -18,17 +25,19 @@ class SensorManager:
     """Manager for various sensors connected to the RP2040"""
     
     def __init__(self):
-        # Initialize I2C bus for digital sensors
-        # Use I2C1 with GPIO2 (SDA) and GPIO3 (SCL)
-        self.i2c = I2C(1, scl=Pin(3), sda=Pin(2), freq=400000)
-        
-        # Alternative I2C0 configuration if I2C1 fails
-        # self.i2c = I2C(0, scl=Pin(1), sda=Pin(0), freq=400000)
+        # Initialize I2C bus for digital sensors using hardware config
+        print(f"Initializing I2C{I2C_BUS} with SCL=GPIO{I2C_SCL_PIN}, SDA=GPIO{I2C_SDA_PIN}")
+        try:
+            self.i2c = I2C(I2C_BUS, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=100000)  # Lower frequency for better reliability
+            print("I2C initialized successfully")
+        except Exception as e:
+            print(f"Error initializing I2C: {e}")
+            raise
         
         # Initialize ADC pins for analog sensors
-        self.adc0 = ADC(Pin(26))  # ADC0
-        self.adc1 = ADC(Pin(27))  # ADC1
-        self.adc2 = ADC(Pin(28))  # ADC2
+        self.adc0 = ADC(Pin(ADC0_PIN))  # ADC0
+        self.adc1 = ADC(Pin(ADC1_PIN))  # ADC1
+        self.adc2 = ADC(Pin(ADC2_PIN))  # ADC2
         
         # Storage for sensor objects
         self.sensors = {}
@@ -52,11 +61,11 @@ class SensorManager:
                 # Initialize sensor based on its type
                 try:
                     if sensor_name == "BME280":
-                        self.sensors["bme280"] = BME280(i2c=self.i2c, address=addr)
-                        print("BME280 initialized")
+                        self.sensors["bme280"] = BME280(i2c=self.i2c, address=BME280_I2C_ADDR)
+                        print(f"BME280 initialized at address 0x{BME280_I2C_ADDR:02X}")
                     elif sensor_name == "LSM6DSOX":
-                        self.sensors["lsm6dsox"] = LSM6DSOX(i2c=self.i2c, address=addr)
-                        print("LSM6DSOX initialized")
+                        self.sensors["lsm6dsox"] = LSM6DSOX(i2c=self.i2c, address=LSM6DSOX_I2C_ADDR)
+                        print(f"LSM6DSOX initialized at address 0x{LSM6DSOX_I2C_ADDR:02X}")
                 except Exception as e:
                     print(f"Error initializing {sensor_name}: {e}")
                     

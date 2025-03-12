@@ -4,13 +4,13 @@
 echo "=== Deploying files to RP2040 ==="
 
 # Essential core files
-CORE_FILES="boot.py main.py wifi_manager.py flash_storage.py data_logger.py sensors.py"
+CORE_FILES="boot.py main.py wifi_manager.py flash_storage.py data_logger.py sensors.py hardware_config.py"
 
 # Sensor drivers
 SENSOR_FILES="bme280.py lsm6dsox.py"
 
 # Test files
-TEST_FILES="sensor_test.py wifi_test.py incremental_test.py bme280_test.py lsm6dsox_test.py i2c_scanner.py"
+TEST_FILES="sensor_test.py wifi_test.py incremental_test.py bme280_test.py lsm6dsox_test.py i2c_scanner.py i2c_validator.py raw_imu_test.py"
 
 # Utility files
 UTIL_FILES="espflash.py update_firmware.py check_espflash.py"
@@ -47,7 +47,8 @@ copy_files "$CONFIG_FILES" "configuration"
 
 echo "=== Deployment complete ==="
 echo "You can now run various test scripts:"
-echo "  uv run mpremote run i2c_scanner.py      - Find all I2C devices and best bus config"
+echo "  uv run mpremote run raw_imu_test.py       - Direct low-level test of sensors"
+echo "  uv run mpremote run i2c_validator.py     - Validate I2C devices and find working config"
 echo "  uv run mpremote run incremental_test.py - Run all tests incrementally"
 echo "  uv run mpremote run bme280_test.py      - Test only BME280 sensor"
 echo "  uv run mpremote run lsm6dsox_test.py    - Test only LSM6DSOX IMU"

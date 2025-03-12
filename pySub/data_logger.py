@@ -5,6 +5,12 @@ from machine import Pin, SPI
 from flash_storage import FlashStorage
 from sensors import SensorManager
 
+# Import hardware configuration 
+from hardware_config import (
+    LED_PIN, SPI_BUS, SPI_SCK_PIN, SPI_MOSI_PIN, 
+    SPI_MISO_PIN, SPI_CS_PIN
+)
+
 class DataLogger:
     def __init__(self, log_interval=10):
         """Initialize the data logger
@@ -13,15 +19,15 @@ class DataLogger:
             log_interval: Time between logs in seconds
         """
         self.log_interval = log_interval
-        self.led = Pin(25, Pin.OUT)
+        self.led = Pin(LED_PIN, Pin.OUT)
         
         # Initialize flash storage
         self.storage = FlashStorage()
             
         # Initialize SPI for flash storage
-        self.spi = SPI(1, baudrate=40000000, 
-                      sck=Pin(10), mosi=Pin(11), miso=Pin(12))
-        self.cs = Pin(13, Pin.OUT)
+        self.spi = SPI(SPI_BUS, baudrate=40000000, 
+                      sck=Pin(SPI_SCK_PIN), mosi=Pin(SPI_MOSI_PIN), miso=Pin(SPI_MISO_PIN))
+        self.cs = Pin(SPI_CS_PIN, Pin.OUT)
         
         # Initialize sensor manager
         try:

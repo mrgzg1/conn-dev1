@@ -2,32 +2,42 @@ import time
 from machine import Pin, I2C
 from lsm6dsox import LSM6DSOX
 
+# Import hardware configuration
+from hardware_config import (
+    I2C_BUS, I2C_SCL_PIN, I2C_SDA_PIN, I2C_FREQ,
+    LSM6DSOX_I2C_ADDR, LED_PIN
+)
+
 # LED for visual feedback
-led = Pin(25, Pin.OUT)
+led = Pin(LED_PIN, Pin.OUT)
 
 def main():
     print("LSM6DSOX IMU Test")
     
-    # Initialize I2C (I2C1 with correct pins)
-    i2c = I2C(1, scl=Pin(3), sda=Pin(2), freq=400000)
-    
-    # Try alternative I2C0 if needed
-    # i2c = I2C(0, scl=Pin(1), sda=Pin(0), freq=400000)
+    # Initialize I2C using hardware config
+    print(f"Initializing I2C{I2C_BUS} with SCL=GPIO{I2C_SCL_PIN}, SDA=GPIO{I2C_SDA_PIN}")
+    i2c = I2C(I2C_BUS, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=100000)  # Lower frequency for better reliability
     
     # Scan I2C bus
     devices = i2c.scan()
     print("I2C devices found:", [hex(addr) for addr in devices])
     
-    # Try both common LSM6DSOX addresses
+    # Use the address from hardware config
     imu = None
-    for addr in [0x6A, 0x6B]:
+    try:
+        print(f"Trying LSM6DSOX at address 0x{LSM6DSOX_I2C_ADDR:02X}...")
+        imu = LSM6DSOX(i2c=i2c, address=LSM6DSOX_I2C_ADDR)
+        print(f"LSM6DSOX initialized at 0x{LSM6DSOX_I2C_ADDR:02X}")
+    except Exception as e:
+        print(f"Not found at 0x{LSM6DSOX_I2C_ADDR:02X}: {e}")
+        # Try alternative address as fallback
+        alt_addr = 0x6B if LSM6DSOX_I2C_ADDR == 0x6A else 0x6A
         try:
-            print(f"Trying LSM6DSOX at address 0x{addr:02x}...")
-            imu = LSM6DSOX(i2c=i2c, address=addr)
-            print(f"LSM6DSOX initialized at 0x{addr:02x}")
-            break
+            print(f"Trying LSM6DSOX at alternative address 0x{alt_addr:02X}...")
+            imu = LSM6DSOX(i2c=i2c, address=alt_addr)
+            print(f"LSM6DSOX initialized at 0x{alt_addr:02X}")
         except Exception as e:
-            print(f"Not found at 0x{addr:02x}: {e}")
+            print(f"Not found at 0x{alt_addr:02X}: {e}")
     
     if not imu:
         print("LSM6DSOX not found! Check connections and try again.")

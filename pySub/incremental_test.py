@@ -3,8 +3,14 @@ import machine
 from machine import Pin, I2C
 import gc
 
+# Import hardware configuration
+from hardware_config import (
+    I2C_BUS, I2C_SCL_PIN, I2C_SDA_PIN, I2C_FREQ,
+    BME280_I2C_ADDR, LSM6DSOX_I2C_ADDR, LED_PIN
+)
+
 # LED for visual feedback
-led = Pin(25, Pin.OUT)
+led = Pin(LED_PIN, Pin.OUT)
 
 def memory_status():
     """Print memory allocation status"""
@@ -18,29 +24,29 @@ def test_i2c_scan():
     """Test I2C scan functionality"""
     print("\n--- I2C Scan Test ---")
     
-    # Try I2C1 first (GPIO2/3)
-    print("Testing I2C1 (GPIO2=SDA, GPIO3=SCL)...")
-    i2c = I2C(1, scl=Pin(3), sda=Pin(2), freq=400000)
+    # Use the hardware configuration
+    print(f"Testing I2C{I2C_BUS} (SCL=GPIO{I2C_SCL_PIN}, SDA=GPIO{I2C_SDA_PIN})...")
+    i2c = I2C(I2C_BUS, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)
     devices = i2c.scan()
     
     if devices:
-        print(f"Found {len(devices)} I2C devices on I2C1:")
+        print(f"Found {len(devices)} I2C devices:")
         for addr in devices:
-            print(f"  - Device at address: 0x{addr:02x}")
+            device_name = "Unknown"
+            if addr == BME280_I2C_ADDR:
+                device_name = "BME280 (Environmental sensor)"
+            elif addr == 0x77:  # Alternative BME280 address
+                device_name = "BME280 (Environmental sensor, alt address)"
+            elif addr == LSM6DSOX_I2C_ADDR:
+                device_name = "LSM6DSOX (IMU)"
+            elif addr == 0x6B:  # Alternative LSM6DSOX address
+                device_name = "LSM6DSOX (IMU, alt address)"
+            elif addr == 0x1E:
+                device_name = "LIS3MDL/HMC5883L (Magnetometer)"
+            
+            print(f"  - Device at address: 0x{addr:02x} ({device_name})")
     else:
-        print("No I2C devices found on I2C1, trying I2C0...")
-        # Try I2C0 (GPIO0/1)
-        try:
-            i2c = I2C(0, scl=Pin(1), sda=Pin(0), freq=400000)
-            devices = i2c.scan()
-            if devices:
-                print(f"Found {len(devices)} I2C devices on I2C0:")
-                for addr in devices:
-                    print(f"  - Device at address: 0x{addr:02x}")
-            else:
-                print("No I2C devices found on I2C0 either.")
-        except Exception as e:
-            print(f"Error initializing I2C0: {e}")
+        print(f"No I2C devices found on I2C{I2C_BUS}. Check connections and hardware config.")
     
     return i2c, devices
 
