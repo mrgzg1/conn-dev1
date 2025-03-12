@@ -11,6 +11,6 @@ wifi.json
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
-.vscode/*
+.vscode/**/*
 **/.DS_Store
 

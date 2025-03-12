@@ -3,10 +3,20 @@ import time
 
 class WiFiManager:
     def __init__(self, ssid_prefix="RP2040_AP"):
-        self.wlan_sta = network.WLAN(network.STA_IF)
-        self.wlan_sta.active(True)
-        self.wlan_ap = network.WLAN(network.AP_IF)
-        self.ssid_prefix = ssid_prefix
+        try:
+            self.wlan_sta = network.WLAN(network.STA_IF)
+            self.wlan_sta.active(True)
+            self.wlan_ap = network.WLAN(network.AP_IF)
+            self.ssid_prefix = ssid_prefix
+        except Exception as e:
+            print(f"WiFi initialization error: {e}")
+            # Fallback initialization
+            try:
+                self.wlan_sta = network.WLAN(network.STA_IF)
+                self.wlan_ap = network.WLAN(network.AP_IF)
+                self.ssid_prefix = ssid_prefix
+            except Exception as e2:
+                print(f"Fallback initialization also failed: {e2}")
         
     def connect(self, ssid, password, timeout=10):
         """Connect to a WiFi network"""
@@ -64,5 +74,12 @@ class WiFiManager:
         
     def _get_id(self):
         """Get unique ID from MAC address"""
-        mac = self.wlan_sta.config("mac")
-        return "{:02x}{:02x}{:02x}".format(mac[0], mac[1], mac[2])
+        try:
+            mac = self.wlan_sta.config("mac")
+            return "{:02x}{:02x}{:02x}".format(mac[0], mac[1], mac[2])
+        except Exception as e:
+            print(f"Error getting MAC address: {e}")
+            # Return fallback ID
+            import urandom
+            random_id = urandom.getrandbits(24)
+            return "{:06x}".format(random_id)
