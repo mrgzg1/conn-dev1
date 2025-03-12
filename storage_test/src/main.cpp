@@ -2,7 +2,9 @@
 // Demonstrates how to use the blob storage API for sensor data
 // Configuration
 #define ENABLE_DEMO_WRITES true
-#define FORMAT_STORAGE true
+#define FORMAT_STORAGE false
+#define REPAIR_ON_BOOT false  // Disabled for now - handle repair manually
+#define DO_DEEP_REPAIR false   // Set to true for a complete rewrite of storage
 
 #include <Arduino.h>
 #include "../include/storage_api.h"
@@ -47,7 +49,7 @@ void setup() {
   pinMode(TEST_DATA_PIN, INPUT_PULLUP);
   
   // Initialize storage with format flag if needed
-  bool format = false; // Set this to true to format storage
+  bool format = FORMAT_STORAGE; // Use the define to control formatting
   if (!storage_init(format)) {
     Serial.println("Failed to initialize storage!");
     while (1) {
@@ -55,6 +57,34 @@ void setup() {
       delay(100);
       digitalWrite(LED_BUILTIN, LOW);
       delay(100);
+    }
+  }
+  
+  // Repair storage if enabled (after initialization)
+  if (REPAIR_ON_BOOT) {
+    Serial.println("\nAutomatic repair check on boot enabled");
+    
+    // Get storage info before repair
+    uint32_t totalSectors, usedSectors, freeSectors;
+    storage_get_info(&totalSectors, &usedSectors, &freeSectors);
+    uint32_t blobCount = storage_get_reading_count();
+    
+    // Only run repair if there's data to repair
+    if (blobCount > 0) {
+      Serial.println("Running storage repair sequence...");
+      bool repairResult = storage_repair();
+      
+      if (repairResult) {
+        Serial.println("Boot-time repair completed successfully");
+      } else {
+        Serial.println("Boot-time repair completed with issues");
+      }
+      
+      // Add delay after repair
+      delay(500);
+      yield();
+    } else {
+      Serial.println("No data to repair, skipping repair sequence");
     }
   }
   
@@ -373,12 +403,121 @@ void loop() {
       delay(100);
       yield();
     }
+    else if (command == "format") {
+      // Format storage with confirmation
+      Serial.println("WARNING: This will erase ALL stored data!");
+      Serial.println("Type 'confirm format' to proceed");
+    }
+    else if (command == "confirm format") {
+      // Format storage
+      Serial.println("Formatting storage...");
+      if (storage_format()) {
+        Serial.println("Storage format successful - all data erased");
+        
+        // Display updated storage info
+        uint32_t totalSectors, usedSectors, freeSectors;
+        storage_get_info(&totalSectors, &usedSectors, &freeSectors);
+        Serial.printf("Storage reset: %u/%u sectors used, %u sectors free\n", 
+                    usedSectors, totalSectors, freeSectors);
+      } else {
+        Serial.println("Storage format FAILED");
+      }
+    }
+    else if (command == "repair") {
+      // Run storage repair
+      Serial.println("Running storage repair...");
+      if (storage_repair()) {
+        Serial.println("Storage repair successful");
+      }
+    }
+    else if (command == "deep-repair") {
+      // Perform a deep storage repair by temporarily storing and rewriting
+      Serial.println("\n*** DEEP STORAGE REPAIR ***");
+      Serial.println("This will temporarily back up and restore all valid data");
+      Serial.println("Type 'confirm deep-repair' to proceed");
+    }
+    else if (command == "confirm deep-repair") {
+      Serial.println("\nStarting DEEP repair process...");
+      
+      // 1. First scan and count valid blob data
+      uint32_t totalBlobs = storage_get_reading_count();
+      Serial.printf("Found %u blobs in header\n", totalBlobs);
+      
+      // Count and store valid blobs
+      const int MAX_BACKUP = 50; // Limit based on RAM
+      SensorDataPoint validReadings[MAX_BACKUP];
+      uint32_t validTypes[MAX_BACKUP];
+      uint32_t validCount = 0;
+      
+      Serial.println("Scanning for valid readings...");
+      for (uint32_t i = 0; i < totalBlobs && validCount < MAX_BACKUP; i++) {
+        SensorDataPoint reading;
+        uint32_t type;
+        
+        if (storage_get_reading(i, reading, &type)) {
+          // Store in backup array
+          validReadings[validCount] = reading;
+          validTypes[validCount] = type;
+          validCount++;
+          
+          if (validCount % 5 == 0) {
+            Serial.printf("Found %u valid readings so far...\n", validCount);
+          }
+        }
+        yield();
+      }
+      
+      Serial.printf("Found %u valid readings out of %u total\n", validCount, totalBlobs);
+      
+      // 2. Format storage to start fresh
+      Serial.println("Formatting storage...");
+      if (!storage_format()) {
+        Serial.println("FORMAT FAILED! Aborting deep repair");
+        return;
+      }
+      
+      // 3. Re-initialize storage
+      Serial.println("Re-initializing storage...");
+      delay(200);
+      storage_init(false);
+      
+      // 4. Write back valid readings
+      Serial.println("Writing back valid readings...");
+      uint32_t successCount = 0;
+      
+      for (uint32_t i = 0; i < validCount; i++) {
+        if (storage_store_reading(validReadings[i], (SensorType)validTypes[i])) {
+          successCount++;
+        }
+        yield();
+        
+        // Progress updates
+        if (i % 5 == 0 || i == validCount-1) {
+          Serial.printf("Restored %u of %u readings\n", i+1, validCount);
+        }
+      }
+      
+      // 5. Flush buffer to ensure all data is written
+      storage_flush();
+      
+      Serial.printf("\nDEEP REPAIR COMPLETE: Restored %u of %u valid readings\n", 
+                  successCount, validCount);
+                  
+      // Get storage info after repair
+      uint32_t totalSectors, usedSectors, freeSectors;
+      storage_get_info(&totalSectors, &usedSectors, &freeSectors);
+      Serial.printf("Storage status: %u/%u sectors used, %u sectors free\n", 
+                  usedSectors, totalSectors, freeSectors);
+    }
     else if (command == "help") {
       // Show help
       Serial.println("\nAvailable commands:");
       Serial.println("summary - Show storage summary");
       Serial.println("flush - Force buffer flush");
       Serial.println("compact - Compact storage");
+      Serial.println("repair - Run normal storage repair");
+      Serial.println("deep-repair - Back up and restore valid data (more thorough)");
+      Serial.println("format - Format storage (erases ALL data)");
       Serial.println("delete X - Delete reading at index X");
       Serial.println("help - Show this help");
     }

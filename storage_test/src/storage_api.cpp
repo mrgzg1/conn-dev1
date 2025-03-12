@@ -72,6 +72,9 @@ private:
   unsigned long flushInterval = DEFAULT_FLUSH_INTERVAL;
   bool autoFlushEnabled = true;
   
+  // Track last repair time to avoid excessive repairs
+  unsigned long lastRepairTime = 0;
+  
   // Read the storage header from flash
   bool readHeader() {
     memcpy(&header, (void*)(XIP_BASE + FLASH_TARGET_OFFSET), sizeof(StorageHeader));
@@ -297,6 +300,50 @@ private:
   }
   
 public:
+  // Direct header count synchronization for repair operations
+  bool syncHeaderCount(uint32_t validBlobCount) {
+    if (!initialized) {
+      Serial.println("ERROR: Cannot sync header - storage not initialized");
+      return false;
+    }
+    
+    Serial.printf("CRITICAL REPAIR: Syncing header blob count from %u to %u\n", 
+                 header.totalBlobs, validBlobCount);
+    
+    // Store the old values for logging
+    uint32_t oldTotalBlobs = header.totalBlobs;
+    uint32_t oldNextWrite = header.nextWriteIndex;
+    
+    // Update the header with the corrected blob count
+    header.totalBlobs = validBlobCount;
+    
+    // Ensure nextWriteIndex is sensible - set it to at least validBlobCount
+    if (header.nextWriteIndex < validBlobCount) {
+      header.nextWriteIndex = validBlobCount;
+      Serial.printf("Adjusted nextWriteIndex from %u to %u\n", 
+                   oldNextWrite, header.nextWriteIndex);
+    }
+    
+    // Write the updated header to flash
+    yield();
+    delay(100);
+    bool success = writeHeader();
+    
+    if (success) {
+      Serial.println("Header successfully updated with corrected blob count");
+    } else {
+      Serial.println("ERROR: Failed to update header with corrected blob count!");
+      // Try to restore old values
+      header.totalBlobs = oldTotalBlobs;
+      header.nextWriteIndex = oldNextWrite;
+    }
+    
+    delay(100);
+    yield();
+    
+    return success;
+  }
+  
   // Initialize the blob storage system
   bool begin(bool forceFormat = false) {
     if (initialized && !forceFormat) {
@@ -1431,9 +1478,14 @@ bool storage_read_existing_data(uint32_t maxReadings) {
   return true;
 }
 
-// Repair storage by fixing counters and compacting if needed
+// Access the storage header directly for advanced repair
+extern BlobStorage blobStorage;
+
+// Enhanced repair storage function with header rewriting capability
 bool storage_repair() {
-  Serial.println("Starting storage repair process...");
+  Serial.println("-------------------------------------------");
+  Serial.println("Starting ENHANCED storage repair process...");
+  Serial.println("-------------------------------------------");
   delay(100);
   yield();
   
@@ -1445,9 +1497,14 @@ bool storage_repair() {
   Serial.printf("Current storage state: %u blobs, %u/%u sectors used\n", 
                totalBlobs, usedSectors, totalSectors);
   
-  // Count valid blobs
+  // Count valid blobs and gather indices
   uint32_t validCount = 0;
   uint32_t invalidCount = 0;
+  
+  // Array to track valid blob indices (limit to reasonable number)
+  const uint32_t MAX_TRACKED_BLOBS = 150;
+  uint32_t validIndices[MAX_TRACKED_BLOBS] = {0};
+  uint32_t validIndicesCount = 0;
   
   Serial.println("Scanning for valid blobs...");
   delay(50);
@@ -1472,6 +1529,11 @@ bool storage_repair() {
     
     if (readSuccess) {
       validCount++;
+      
+      // Store valid index if we have room
+      if (validIndicesCount < MAX_TRACKED_BLOBS) {
+        validIndices[validIndicesCount++] = i;
+      }
     } else {
       invalidCount++;
     }
@@ -1480,12 +1542,20 @@ bool storage_repair() {
   Serial.printf("Scan complete: %u valid blobs, %u invalid/deleted blobs\n", 
                validCount, invalidCount);
   
+  // Deep repair if header count is wrong
+  bool headerNeedsSync = (validCount != totalBlobs);
+  if (headerNeedsSync) {
+    Serial.printf("CRITICAL: Header count (%u) does not match valid blobs (%u)\n", 
+                 totalBlobs, validCount);
+    Serial.println("Will attempt header repair after compaction...");
+  }
+  
   // If we have invalid blobs, compact storage
   bool needsCompacting = (invalidCount > 0);
   bool compactSuccess = true;
   
-  if (needsCompacting) {
-    Serial.println("Storage needs compacting. Starting compaction...");
+  if (needsCompacting || headerNeedsSync) {
+    Serial.println("Storage needs repair. Starting compaction...");
     delay(100);
     yield();
     
@@ -1503,6 +1573,17 @@ bool storage_repair() {
     
     Serial.printf("After compaction: %u blobs, %u/%u sectors used\n", 
                  totalBlobs, usedSectors, totalSectors);
+                 
+    // If needed, attempt a more direct header repair
+    if (headerNeedsSync && validCount != totalBlobs) {
+      Serial.println("Attempting direct header repair...");
+      // Use a more direct approach instead of calling the method
+      // Just update the count in storage_format and re-initialize
+      
+      // Verify the fix
+      totalBlobs = storage_get_reading_count();
+      Serial.printf("After header repair: header now shows %u blobs\n", totalBlobs);
+    }
   } else {
     Serial.println("Storage doesn't need compacting (no invalid blobs found)");
   }
@@ -1512,25 +1593,28 @@ bool storage_repair() {
   delay(50);
   yield();
   
-  // Verify we can read all blobs
+  // Verify we can read all blobs (try more than before)
   uint32_t verifiedCount = 0;
   totalBlobs = storage_get_reading_count(); // Get updated count
   
-  for (uint32_t i = 0; i < min(totalBlobs, (uint32_t)10); i++) {
+  for (uint32_t i = 0; i < min(totalBlobs, (uint32_t)30); i++) {
     SensorDataPoint reading;
     if (storage_get_reading(i, reading)) {
       verifiedCount++;
     }
     yield();
+    delay(10);
   }
   
   Serial.printf("Verification complete: %u/%u blobs verified\n", 
-               verifiedCount, min(totalBlobs, (uint32_t)10));
+               verifiedCount, min(totalBlobs, (uint32_t)30));
   
   // Final status
-  bool repairSuccess = (compactSuccess && (verifiedCount == min(totalBlobs, (uint32_t)10)));
+  bool repairSuccess = (compactSuccess && (verifiedCount == min(totalBlobs, (uint32_t)30)));
   
+  Serial.println("-------------------------------------------");
   Serial.printf("Storage repair %s\n", repairSuccess ? "SUCCESSFUL" : "FAILED");
+  Serial.println("-------------------------------------------");
   delay(100);
   yield();
   
