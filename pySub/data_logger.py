@@ -27,6 +27,15 @@ class DataLogger:
         try:
             self.sensor_manager = SensorManager()
             print("Sensor manager initialized")
+            
+            # Print available sensors
+            if hasattr(self.sensor_manager, 'available_sensors'):
+                print(f"Available sensors: {self.sensor_manager.available_sensors}")
+            
+            # Print initialized sensors
+            if hasattr(self.sensor_manager, 'sensors') and self.sensor_manager.sensors:
+                print(f"Initialized sensors: {list(self.sensor_manager.sensors.keys())}")
+            
         except Exception as e:
             print(f"Error initializing sensors: {e}")
             self.sensor_manager = None
@@ -42,6 +51,12 @@ class DataLogger:
                 "temperature": 25.0,
                 "humidity": 50.0,
                 "pressure": 1013.0,
+                "accel_x": 0.0,
+                "accel_y": 0.0,
+                "accel_z": 9.8,
+                "gyro_x": 0.0,
+                "gyro_y": 0.0,
+                "gyro_z": 0.0,
             }
         
     def log_data(self):
@@ -52,10 +67,24 @@ class DataLogger:
         date_str = "{:04d}-{:02d}-{:02d}".format(*time.localtime()[0:3])
         filename = f"/data/log_{date_str}.txt"
         
+        # Create a compact representation for logging
+        # Just keep a small summary for terminal output
+        log_summary = {
+            "timestamp": data.get("datetime", time.time()),
+            "temp": f"{data.get('temperature', 0):.1f}°C",
+            "humid": f"{data.get('humidity', 0):.1f}%",
+            "press": f"{data.get('pressure', 0):.1f}hPa"
+        }
+        
+        # Add IMU data summary if available
+        if all(k in data for k in ["accel_x", "accel_y", "accel_z"]):
+            accel_mag = (data["accel_x"]**2 + data["accel_y"]**2 + data["accel_z"]**2)**0.5
+            log_summary["accel"] = f"{accel_mag:.2f}m/s²"
+        
         # Log to file using storage manager
         if self.storage.append_file(filename, ujson.dumps(data) + '\n'):
             self.led.toggle()  # Blink LED to indicate successful log
-            print("Data logged:", data)
+            print("Data logged:", log_summary)
             return True
         return False
             
