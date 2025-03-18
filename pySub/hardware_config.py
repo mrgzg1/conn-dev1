@@ -6,9 +6,9 @@ Contains pin assignments and hardware-specific settings
 # I2C Configuration
 # Based on Arduino Nano RP2040 Connect hardware config
 # I2C1: SCL=GPIO27, SDA=GPIO26
-I2C_BUS = 1
-I2C_SCL_PIN = 27
-I2C_SDA_PIN = 26
+I2C_BUS = 0
+I2C_SCL_PIN = 13
+I2C_SDA_PIN = 12
 I2C_FREQ = 400000
 
 # BME280 Configuration

@@ -38,39 +38,46 @@ class WiFiManager:
     def start_ap(self):
         """Start access point mode"""
         ap_ssid = f"{self.ssid_prefix}_{self._get_id()}"
+        ap_password = "micropython"  # Default password
+        
+        print(f"Starting AP with SSID: {ap_ssid}")
         self.wlan_ap.active(True)
         
         # Try different config approaches to handle firmware differences
         try:
-            # Check which parameters are accepted
-            param_name = None
-            for param in ["ssid", "essid"]:
-                try:
-                    test_config = {param: ap_ssid}
-                    self.wlan_ap.config(**test_config)
-                    param_name = param
-                    break
-                except:
-                    continue
+            # Configure the access point with SSID and password
+            self.wlan_ap.config(ssid=ap_ssid, password=ap_password, security=3)  # WPA2 security
             
-            if param_name:
-                config = {param_name: ap_ssid, "password": "micropython", "authmode": 3}
-                self.wlan_ap.config(**config)
+            # Wait briefly for AP to initialize
+            time.sleep(1)
+            
+            # Verify AP is active and configured
+            if self.wlan_ap.active():
+                print(f"AP started: {ap_ssid}")
+                print("AP IP:", self.wlan_ap.ifconfig()[0])
+                return ap_ssid
             else:
-                # Simplified approach as last resort
-                self.wlan_ap.config(ssid=ap_ssid)
-                
+                print("AP failed to activate")
+                return None
+            
         except Exception as e:
             print(f"AP config error: {e}")
             # Try minimal configuration as fallback
             try:
+                # Simple configuration without security
                 self.wlan_ap.config(ssid=ap_ssid)
-            except:
-                print("Could not configure AP mode")
-        
-        print(f"AP started: {ap_ssid}")
-        print("IP:", self.wlan_ap.ifconfig()[0])
-        return ap_ssid
+                time.sleep(1)
+                
+                if self.wlan_ap.active():
+                    print(f"AP started with minimal config: {ap_ssid}")
+                    print("AP IP:", self.wlan_ap.ifconfig()[0])
+                    return ap_ssid
+                else:
+                    print("AP failed to activate with minimal config")
+                    return None
+            except Exception as e2:
+                print(f"Minimal AP config failed: {e2}")
+                return None
         
     def _get_id(self):
         """Get unique ID from MAC address"""

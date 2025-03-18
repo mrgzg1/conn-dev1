@@ -7,7 +7,7 @@ import time
 from machine import Pin, I2C
 
 # Use the official Arduino Nano RP2040 Connect I2C pins
-i2c = I2C(1, scl=Pin(27), sda=Pin(26), freq=100000)  # Use lower frequency for reliability
+i2c = I2C(1, scl=Pin(12), sda=Pin(13), freq=100000)  # Use lower frequency for reliability
 
 # LED for visual feedback
 led = Pin(25, Pin.OUT)

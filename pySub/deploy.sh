@@ -1,23 +1,6 @@
 #!/bin/bash
 # Script to deploy files to Raspberry Pi Pico RP2040
 
-echo "=== Deploying files to RP2040 ==="
-
-# Essential core files
-CORE_FILES="boot.py main.py wifi_manager.py flash_storage.py data_logger.py sensors.py hardware_config.py"
-
-# Sensor drivers
-SENSOR_FILES="bme280.py lsm6dsox.py"
-
-# Test files
-TEST_FILES="sensor_test.py wifi_test.py incremental_test.py bme280_test.py lsm6dsox_test.py i2c_scanner.py i2c_validator.py raw_imu_test.py"
-
-# Utility files
-UTIL_FILES="espflash.py update_firmware.py check_espflash.py"
-
-# Configuration files
-CONFIG_FILES="secrets.json"
-
 # Function to copy files and check result
 copy_files() {
     local files=$1
@@ -37,6 +20,30 @@ copy_files() {
     done
     echo "Done."
 }
+
+# If a filename is provided as argument, just copy that file
+if [ $# -eq 1 ]; then
+    echo "=== Deploying single file to RP2040 ==="
+    copy_files "$1" "specified"
+    exit 0
+fi
+
+echo "=== Deploying files to RP2040 ==="
+
+# Essential core files
+CORE_FILES="boot.py main.py wifi_manager.py flash_storage.py data_logger.py sensors.py hardware_config.py"
+
+# Sensor drivers
+SENSOR_FILES="bme280.py lsm6dsox.py"
+
+# Test files
+TEST_FILES="sensor_test.py wifi_test.py incremental_test.py bme280_test.py lsm6dsox_test.py i2c_scanner.py i2c_validator.py raw_imu_test.py"
+
+# Utility files
+UTIL_FILES="espflash.py update_firmware.py check_espflash.py"
+
+# Configuration files
+CONFIG_FILES="secrets.json"
 
 # Copy all files by category
 copy_files "$CORE_FILES" "core"

@@ -16,9 +16,9 @@ This repository contains multiple prototype implementations for collecting senso
 ### MicroPython Project (pySub)
 - Install dependencies: `uv add rshell esptool mpremote adafruit-ampy`
 - Flash firmware: See pySub/README.md
-- Upload code: `ampy --port /dev/tty.usbmodem* put main.py`
-- Monitor: `mpremote repl`
-- Run tests: `python -m pySub.sensor_test`
+- Upload code: `uv run ampy --port /dev/tty.usbmodem* put main.py`
+- Monitor: `uv run mpremote repl`
+- Run tests: `python -m pySub.sensor_test` // uv equivalent of this
 
 ## Test Commands
 - Run Arduino tests: `pio test`

@@ -23,7 +23,10 @@ i2c_configs = [
     {"bus": 1, "scl": 11, "sda": 10, "name": "I2C1 alt2 (SCL=GPIO11, SDA=GPIO10)"},
     {"bus": 1, "scl": 15, "sda": 14, "name": "I2C1 alt3 (SCL=GPIO15, SDA=GPIO14)"},
     {"bus": 1, "scl": 19, "sda": 18, "name": "I2C1 alt4 (SCL=GPIO19, SDA=GPIO18)"},
-    {"bus": 1, "scl": 27, "sda": 26, "name": "I2C1 alt5 (SCL=GPIO27, SDA=GPIO26)"}
+    {"bus": 1, "scl": 27, "sda": 26, "name": "I2C1 alt5 (SCL=GPIO27, SDA=GPIO26)"},
+    
+    # Additional specific configuration
+    {"bus": 0, "scl": 13, "sda": 12, "name": "I2C0 specific (SCL=GPIO13, SDA=GPIO12)"}
 ]
 
 # Define common I2C device addresses and names
